@@ -1,69 +1,84 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+
+const STEPS = [
+  { title: "List", body: "Farmers and co-ops post crop, volume, harvest date, and price." },
+  { title: "Match", body: "Buyers browse or get matched; bulk-match aggregates smallholders into one order." },
+  { title: "Move", body: "Pooled logistics batches nearby orders into shared truck trips via verified haulers." },
+  { title: "Settle", body: "Escrow-held payment releases to the seller only once delivery is confirmed." },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div>
+      <section className="bg-gradient-to-b from-[#1E7A3D]/10 to-transparent">
+        <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+          <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#C98A1A]">
+            Agriculture / AgriTech · Nueva Ecija
           </p>
+          <h1 className="max-w-2xl text-4xl font-bold tracking-tight text-neutral-900 sm:text-5xl">
+            ANI-KONEKTA
+          </h1>
+          <p className="mt-2 max-w-xl text-lg text-neutral-600">
+            &ldquo;From Farm to Fair Trade.&rdquo; A B2B marketplace and pooled-logistics
+            platform connecting Nueva Ecija farmers and cooperatives directly to
+            retailers, wholesalers, and institutional buyers — with escrow-protected
+            payment so no one delivers produce on a promise.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href="/register?role=SELLER">
+              <Button size="lg">I&apos;m a Farmer / Seller</Button>
+            </Link>
+            <Link href="/register?role=BUYER">
+              <Button size="lg" variant="secondary">
+                I&apos;m a Buyer
+              </Button>
+            </Link>
+            <Link href="/register?role=HAULER">
+              <Button size="lg" variant="outline">
+                I&apos;m a Hauler
+              </Button>
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-4 py-14">
+        <h2 className="text-xl font-semibold text-neutral-900">How it works</h2>
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {STEPS.map((s, i) => (
+            <Card key={s.title}>
+              <CardContent className="pt-5">
+                <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-[#1E7A3D] text-sm font-bold text-white">
+                  {i + 1}
+                </div>
+                <h3 className="font-semibold text-neutral-900">{s.title}</h3>
+                <p className="mt-1 text-sm text-neutral-600">{s.body}</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
-      </main>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-4 pb-16">
+        <Card className="bg-[#1E7A3D] text-white">
+          <CardContent className="flex flex-col items-start justify-between gap-4 py-8 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="text-xl font-semibold">See the full trade pipeline in action</h2>
+              <p className="mt-1 text-white/80">
+                Log in with a demo account to explore the seller, buyer, hauler, and
+                admin views — see README.md for demo credentials.
+              </p>
+            </div>
+            <Link href="/login">
+              <Button variant="secondary" size="lg">
+                Log in to demo
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }
