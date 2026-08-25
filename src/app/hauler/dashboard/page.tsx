@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { PhotoUpload } from "@/components/ui/photo-upload";
 import { formatPeso } from "@/lib/utils";
 import { acceptAndPoolOrder, advanceRouteStatus } from "@/app/actions";
 
@@ -121,13 +122,21 @@ export default async function HaulerDashboard() {
               )}
 
               {r.status !== "DELIVERED" && (
-                <form action={advanceRouteStatus} className="flex flex-wrap items-end gap-2">
+                <form action={advanceRouteStatus} className="space-y-3">
                   <input type="hidden" name="routeId" value={r.id} />
                   {r.status === "IN_TRANSIT" && (
-                    <div className="flex-1 min-w-[200px]">
-                      <Label htmlFor={`notes-${r.id}`}>Proof-of-delivery notes</Label>
-                      <Input id={`notes-${r.id}`} name="notes" placeholder="Handed to buyer's dock staff" />
-                    </div>
+                    <>
+                      <div>
+                        <Label htmlFor={`notes-${r.id}`}>Proof-of-delivery notes</Label>
+                        <Input id={`notes-${r.id}`} name="notes" placeholder="Handed to buyer's dock staff" />
+                      </div>
+                      <PhotoUpload
+                        id={`photoOfDelivery-${r.id}`}
+                        name="photoOfDelivery"
+                        label="Proof-of-delivery photo"
+                        required
+                      />
+                    </>
                   )}
                   <Button type="submit" variant="secondary">
                     {NEXT_LABEL[r.status]}

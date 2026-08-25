@@ -105,7 +105,14 @@ model Listing {
   qualityTag          QualityTag    @default(STANDARD)
   municipality        String
   status              ListingStatus @default(ACTIVE)
-  photoUrl            String?
+  // Renamed from `photoUrl` (Feature: direct file attachment, never a pasted
+  // URL). Column name kept via @map so existing data isn't moved — this
+  // stores the Vercel Blob storage identifier returned by our own upload
+  // endpoint, never user-typed text. See src/lib/blob-storage.ts.
+  // Any pre-migration row that still holds a raw http(s) URL here was
+  // entered before this feature existed — see
+  // prisma/report-legacy-photo-urls.ts to find and re-upload those.
+  photoBlobKey        String?       @map("photoUrl")
   createdAt           DateTime      @default(now())
 
   orders              Order[]
@@ -203,7 +210,8 @@ model ProofOfDelivery {
   deliveredAt      DateTime @default(now())
   confirmedByBuyer Boolean  @default(false)
   qrTraceCode      String   @unique @default(cuid())
-  photoUrl         String?
+  // Renamed from `photoUrl` — see the matching note on Listing.photoBlobKey.
+  photoBlobKey     String?  @map("photoUrl")
   notes            String?
 }
 

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { confirmDelivery, flagDispute } from "@/app/actions";
+import { resolvePhotoUrl } from "@/lib/blob-storage";
 import type { Order, Listing, User, ProofOfDelivery, PooledRoute } from "@prisma/client";
 
 type FullOrder = Order & {
@@ -22,6 +23,8 @@ export function OrderDetailView({
   order: FullOrder;
   viewerRole: "BUYER" | "SELLER" | "ADMIN" | "HAULER";
 }) {
+  const listingPhotoUrl = resolvePhotoUrl(order.listing.photoBlobKey);
+  const proofPhotoUrl = resolvePhotoUrl(order.proofOfDelivery?.photoBlobKey);
   const hasCommissionSnapshot = order.logisticsFeeAmountPHP != null;
 
   return (
@@ -134,6 +137,22 @@ export function OrderDetailView({
         </Card>
       )}
 
+      {listingPhotoUrl && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Listing photo</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={listingPhotoUrl}
+              alt={`${order.listing.cropType} listing photo`}
+              className="max-h-80 w-full rounded-lg object-cover"
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {order.route && (
         <Card>
           <CardHeader>
@@ -179,6 +198,14 @@ export function OrderDetailView({
             <CardTitle>Traceability</CardTitle>
           </CardHeader>
           <CardContent>
+            {proofPhotoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={proofPhotoUrl}
+                alt="Proof of delivery"
+                className="mb-3 max-h-80 w-full rounded-lg object-cover"
+              />
+            )}
             <p className="text-sm text-neutral-600">
               QR trace code: <code>{order.proofOfDelivery.qrTraceCode}</code>
             </p>

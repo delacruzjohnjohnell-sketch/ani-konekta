@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { resolvePhotoUrl } from "@/lib/blob-storage";
 
 // Public, QR-linked traceability page. No auth required — this is the page
 // a printed/scanned QR code on a delivered order resolves to.
@@ -22,6 +23,8 @@ export default async function TracePage({
 
   const traceUrl = `https://ani-konekta.example/order/${order.id}/trace`;
   const qrDataUrl = await QRCode.toDataURL(traceUrl, { margin: 1, width: 220 });
+  const listingPhotoUrl = resolvePhotoUrl(order.listing.photoBlobKey);
+  const proofPhotoUrl = resolvePhotoUrl(order.proofOfDelivery?.photoBlobKey);
 
   return (
     <div className="harvest-hero min-h-screen">
@@ -59,7 +62,15 @@ export default async function TracePage({
         <CardHeader>
           <CardTitle>Farm origin</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm text-neutral-700">
+        <CardContent className="space-y-3 text-sm text-neutral-700">
+          {listingPhotoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={listingPhotoUrl}
+              alt={`${order.listing.cropType} at harvest`}
+              className="max-h-72 w-full rounded-lg object-cover"
+            />
+          )}
           <p>Grown by: {order.seller.name}</p>
           <p>Municipality: {order.listing.municipality}</p>
           <p>Harvest date: {order.listing.harvestDate.toLocaleDateString()}</p>
@@ -73,7 +84,15 @@ export default async function TracePage({
         <CardHeader>
           <CardTitle>Handling chain</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm text-neutral-700">
+        <CardContent className="space-y-3 text-sm text-neutral-700">
+          {proofPhotoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={proofPhotoUrl}
+              alt="Proof of delivery"
+              className="max-h-72 w-full rounded-lg object-cover"
+            />
+          )}
           <p>Order status: {order.status}</p>
           {order.route && (
             <>

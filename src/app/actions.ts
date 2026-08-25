@@ -9,6 +9,7 @@ import { paymentProvider } from "@/lib/payments";
 import { notifications } from "@/lib/notifications";
 import { poolOrdersByMunicipality } from "@/lib/routing";
 import { resolveCommissionForOrder } from "@/lib/commission";
+import { uploadPhoto, PhotoValidationError } from "@/lib/blob-storage";
 
 async function requireUser(role?: string) {
   const session = await auth();
@@ -30,10 +31,24 @@ export async function createListing(formData: FormData) {
   const askingPricePerKg = Number(formData.get("askingPricePerKg"));
   const qualityTag = String(formData.get("qualityTag") ?? "STANDARD");
   const municipality = String(formData.get("municipality") ?? "").trim();
-  const photoUrl = String(formData.get("photoUrl") ?? "").trim() || null;
+  const photoFile = formData.get("photo");
 
   if (!cropType || !municipality || !volumeKg || !askingPricePerKg) {
     throw new Error("Missing required listing fields.");
+  }
+
+  // A listing can never be published without a real photo attachment — no
+  // pasted-URL fallback (Feature: direct file attachment, never a URL field).
+  if (!(photoFile instanceof File) || photoFile.size === 0) {
+    throw new Error("A listing photo is required. Please attach a photo before posting.");
+  }
+
+  let photoBlobKey: string;
+  try {
+    photoBlobKey = await uploadPhoto(photoFile, "listings");
+  } catch (err) {
+    if (err instanceof PhotoValidationError) throw err;
+    throw new Error(`Photo upload failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const aiSuggestedPricePerKg = await suggestFairPrice(
@@ -53,7 +68,7 @@ export async function createListing(formData: FormData) {
       aiSuggestedPricePerKg,
       qualityTag: qualityTag as never,
       municipality,
-      photoUrl,
+      photoBlobKey,
     },
   });
 
@@ -250,6 +265,7 @@ export async function advanceRouteStatus(formData: FormData) {
   const user = await requireUser("HAULER");
   const routeId = String(formData.get("routeId"));
   const notes = String(formData.get("notes") ?? "").trim() || null;
+  const photoFile = formData.get("photoOfDelivery");
 
   const route = await prisma.pooledRoute.findUniqueOrThrow({
     where: { id: routeId },
@@ -265,6 +281,21 @@ export async function advanceRouteStatus(formData: FormData) {
   const nextStatus = next[route.status];
   if (!nextStatus) throw new Error("Route already delivered.");
 
+  // Proof-of-delivery photo is required only on the transition that creates
+  // the ProofOfDelivery record — no pasted-URL fallback.
+  let photoBlobKey: string | null = null;
+  if (nextStatus === "DELIVERED") {
+    if (!(photoFile instanceof File) || photoFile.size === 0) {
+      throw new Error("A proof-of-delivery photo is required to mark this route delivered.");
+    }
+    try {
+      photoBlobKey = await uploadPhoto(photoFile, "proof-of-delivery");
+    } catch (err) {
+      if (err instanceof PhotoValidationError) throw err;
+      throw new Error(`Photo upload failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   await prisma.pooledRoute.update({
     where: { id: route.id },
     data: { status: nextStatus as never },
@@ -279,7 +310,7 @@ export async function advanceRouteStatus(formData: FormData) {
   if (nextStatus === "DELIVERED") {
     for (const order of route.orders) {
       await prisma.proofOfDelivery.create({
-        data: { orderId: order.id, confirmedByBuyer: false, notes },
+        data: { orderId: order.id, confirmedByBuyer: false, notes, photoBlobKey },
       });
       const buyer = await prisma.user.findUnique({ where: { id: order.buyerId } });
       if (buyer) {

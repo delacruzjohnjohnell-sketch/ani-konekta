@@ -1,13 +1,15 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PhotoUpload } from "@/components/ui/photo-upload";
 import { ListingPricePreview } from "@/components/listing-price-preview";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { createListing } from "@/app/actions";
 import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/lib/commission";
+import { resolvePhotoUrl } from "@/lib/blob-storage";
 import Link from "next/link";
 
 const MUNICIPALITIES = [
@@ -130,10 +132,7 @@ export default async function SellerDashboard() {
                   ))}
                 </Select>
               </div>
-              <div>
-                <Label htmlFor="photoUrl">Photo URL (optional)</Label>
-                <Textarea id="photoUrl" name="photoUrl" rows={2} placeholder="https://…" />
-              </div>
+              <PhotoUpload name="photo" label="Listing photo" required />
               <Button type="submit" className="w-full">
                 Post listing
               </Button>
@@ -155,14 +154,24 @@ export default async function SellerDashboard() {
                   key={l.id}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3"
                 >
-                  <div>
-                    <p className="font-medium text-neutral-900">
-                      {l.cropType} {l.variety ? `— ${l.variety}` : ""} · {l.volumeKg} kg
-                    </p>
-                    <p className="text-sm text-neutral-500">
-                      Asking {formatPeso(l.askingPricePerKg)}/kg · AI suggested{" "}
-                      {formatPeso(l.aiSuggestedPricePerKg)}/kg · {l.municipality}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    {resolvePhotoUrl(l.photoBlobKey) && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={resolvePhotoUrl(l.photoBlobKey)!}
+                        alt={l.cropType}
+                        className="h-12 w-12 rounded-md object-cover"
+                      />
+                    )}
+                    <div>
+                      <p className="font-medium text-neutral-900">
+                        {l.cropType} {l.variety ? `— ${l.variety}` : ""} · {l.volumeKg} kg
+                      </p>
+                      <p className="text-sm text-neutral-500">
+                        Asking {formatPeso(l.askingPricePerKg)}/kg · AI suggested{" "}
+                        {formatPeso(l.aiSuggestedPricePerKg)}/kg · {l.municipality}
+                      </p>
+                    </div>
                   </div>
                   <Badge tone={l.status === "ACTIVE" ? "green" : "gray"}>{l.status}</Badge>
                 </div>

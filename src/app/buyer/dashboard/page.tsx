@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { placeOrder, bulkMatchOrder } from "@/app/actions";
+import { resolvePhotoUrl } from "@/lib/blob-storage";
 
 const MUNICIPALITIES = [
   "Cabanatuan City",
@@ -127,6 +128,14 @@ export default async function BuyerDashboard({
                     form="bulk-match-form"
                     className="h-4 w-4"
                   />
+                  {resolvePhotoUrl(l.photoBlobKey) && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={resolvePhotoUrl(l.photoBlobKey)!}
+                      alt={l.cropType}
+                      className="h-14 w-14 rounded-md object-cover"
+                    />
+                  )}
                   <div>
                     <p className="font-medium text-neutral-900">
                       {l.cropType} {l.variety ? `— ${l.variety}` : ""} · {l.volumeKg} kg
