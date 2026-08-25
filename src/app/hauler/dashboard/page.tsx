@@ -1,0 +1,129 @@
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
+import { formatPeso } from "@/lib/utils";
+import { acceptAndPoolOrder, advanceRouteStatus } from "@/app/actions";
+
+const NEXT_LABEL: Record<string, string> = {
+  ASSIGNED: "Mark picked up",
+  PICKED_UP: "Mark in transit",
+  IN_TRANSIT: "Mark delivered",
+};
+
+export default async function HaulerDashboard() {
+  const session = await auth();
+  const userId = session!.user.id;
+
+  const [unassignedOrders, myRoutes] = await Promise.all([
+    prisma.order.findMany({
+      where: { status: "ORDERED_ESCROWED" },
+      include: { listing: true, buyer: true, seller: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.pooledRoute.findMany({
+      where: { haulerId: userId },
+      include: { orders: { include: { listing: true, buyer: true, seller: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
+      <div>
+        <h1 className="text-2xl font-bold text-neutral-900">Hauler dashboard</h1>
+        <p className="text-neutral-600">
+          Accept escrowed orders into pooled routes, then move them through pickup →
+          in-transit → delivered.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Orders ready for pooling</CardTitle>
+          <CardDescription>
+            Grouped by municipality (see src/lib/routing.ts) — accept one to create a
+            route.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {unassignedOrders.length === 0 && (
+            <p className="text-sm text-neutral-500">Nothing waiting for pickup right now.</p>
+          )}
+          {unassignedOrders.map((o) => (
+            <div
+              key={o.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3"
+            >
+              <div>
+                <p className="font-medium text-neutral-900">
+                  {o.listing.cropType} · {o.volumeKg} kg · {o.listing.municipality}
+                </p>
+                <p className="text-sm text-neutral-500">
+                  {o.seller.name} → {o.buyer.name} · {formatPeso(o.totalAmount)}
+                </p>
+              </div>
+              <form action={acceptAndPoolOrder}>
+                <input type="hidden" name="orderId" value={o.id} />
+                <Button type="submit" size="sm">
+                  Accept & pool
+                </Button>
+              </form>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>My routes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {myRoutes.length === 0 && (
+            <p className="text-sm text-neutral-500">No routes assigned yet.</p>
+          )}
+          {myRoutes.map((r) => (
+            <div key={r.id} className="rounded-lg border border-black/10 p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-medium text-neutral-900">
+                    Route to {r.pickupPoints.join(", ")}
+                  </p>
+                  <p className="text-sm text-neutral-500">
+                    {r.distanceKm} km · ETA {r.etaMinutes} min · {r.orders.length} order(s)
+                  </p>
+                </div>
+                <Badge tone={r.status === "DELIVERED" ? "green" : "gold"}>{r.status}</Badge>
+              </div>
+
+              <ul className="mb-3 space-y-1 text-sm text-neutral-600">
+                {r.orders.map((o) => (
+                  <li key={o.id}>
+                    {o.listing.cropType} · {o.volumeKg} kg · {o.seller.name} → {o.buyer.name}
+                  </li>
+                ))}
+              </ul>
+
+              {r.status !== "DELIVERED" && (
+                <form action={advanceRouteStatus} className="flex flex-wrap items-end gap-2">
+                  <input type="hidden" name="routeId" value={r.id} />
+                  {r.status === "IN_TRANSIT" && (
+                    <div className="flex-1 min-w-[200px]">
+                      <Label htmlFor={`notes-${r.id}`}>Proof-of-delivery notes</Label>
+                      <Input id={`notes-${r.id}`} name="notes" placeholder="Handed to buyer's dock staff" />
+                    </div>
+                  )}
+                  <Button type="submit" variant="secondary">
+                    {NEXT_LABEL[r.status]}
+                  </Button>
+                </form>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
