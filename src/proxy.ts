@@ -21,7 +21,7 @@ export default async function proxy(request: NextRequest) {
 
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   });
 
   if (!token) {
