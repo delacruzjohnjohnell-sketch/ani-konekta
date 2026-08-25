@@ -22,6 +22,12 @@ export default async function proxy(request: NextRequest) {
   const token = await getToken({
     req: request,
     secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+    // getToken() doesn't reliably auto-detect https in this Vercel/Next 16
+    // combo (confirmed live: x-forwarded-proto was "https" but the plain
+    // call still returned null), so it was looking up the unprefixed
+    // cookie name instead of the actual __Secure-authjs.session-token
+    // cookie NextAuth sets in production. Force it explicitly.
+    secureCookie: true,
   });
 
   if (!token) {
