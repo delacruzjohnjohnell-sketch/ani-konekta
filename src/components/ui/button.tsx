@@ -5,11 +5,13 @@ type Variant = "primary" | "secondary" | "outline" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const variantClasses: Record<Variant, string> = {
-  primary: "bg-[#1E7A3D] text-white hover:bg-[#17602f] focus-visible:ring-[#1E7A3D]",
-  secondary: "bg-[#C98A1A] text-white hover:bg-[#a97114] focus-visible:ring-[#C98A1A]",
+  primary:
+    "bg-gradient-to-br from-brand-green-600 to-brand-green-800 text-white shadow-sm hover:from-brand-green-700 hover:to-brand-green-900 focus-visible:ring-brand-green-600",
+  secondary:
+    "bg-gradient-to-br from-brand-gold-400 to-brand-gold-600 text-brand-green-950 shadow-sm hover:from-brand-gold-500 hover:to-brand-gold-700 focus-visible:ring-brand-gold-500",
   outline:
-    "border border-[#1E7A3D] text-[#1E7A3D] bg-white hover:bg-[#1E7A3D]/5 focus-visible:ring-[#1E7A3D]",
-  ghost: "text-[#1E7A3D] hover:bg-[#1E7A3D]/10",
+    "border border-brand-green-700 text-brand-green-700 bg-white hover:bg-brand-green-50 focus-visible:ring-brand-green-700",
+  ghost: "text-brand-green-700 hover:bg-brand-green-50",
   danger: "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600",
 };
 

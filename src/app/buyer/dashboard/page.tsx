@@ -90,6 +90,10 @@ export default async function BuyerDashboard({
                 <option value="GAP_CERTIFIED">GAP-certified</option>
               </Select>
             </div>
+            <div>
+              <Label htmlFor="maxPrice">Max ₱/kg</Label>
+              <Input id="maxPrice" name="maxPrice" type="number" defaultValue={params.maxPrice} />
+            </div>
             <div className="col-span-2 sm:col-span-4">
               <Button type="submit" variant="outline">
                 Apply filters
@@ -166,7 +170,7 @@ export default async function BuyerDashboard({
               <Link
                 key={o.id}
                 href={`/buyer/order/${o.id}`}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3 hover:border-[#1E7A3D]"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3 hover:border-brand-green-700"
               >
                 <div>
                   <p className="font-medium text-neutral-900">

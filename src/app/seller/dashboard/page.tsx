@@ -51,19 +51,22 @@ export default async function SellerDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-brand-green-500 to-brand-green-800" />
           <CardContent className="pt-5">
             <p className="text-sm text-neutral-500">Settled earnings</p>
-            <p className="mt-1 text-2xl font-bold text-[#1E7A3D]">{formatPeso(earnings)}</p>
+            <p className="mt-1 text-2xl font-bold text-brand-green-700">{formatPeso(earnings)}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-brand-gold-400 to-brand-gold-700" />
           <CardContent className="pt-5">
             <p className="text-sm text-neutral-500">Pending in escrow</p>
-            <p className="mt-1 text-2xl font-bold text-[#C98A1A]">{formatPeso(pendingEscrow)}</p>
+            <p className="mt-1 text-2xl font-bold text-brand-gold-600">{formatPeso(pendingEscrow)}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-brand-green-500 via-brand-gold-400 to-brand-gold-700" />
           <CardContent className="pt-5">
             <p className="text-sm text-neutral-500">Reputation score</p>
             <p className="mt-1 text-2xl font-bold text-neutral-900">{me.reputationScore}</p>
@@ -182,7 +185,7 @@ export default async function SellerDashboard() {
                 <Link
                   key={o.id}
                   href={`/orders/${o.id}`}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3 hover:border-[#1E7A3D]"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3 hover:border-brand-green-700"
                 >
                   <div>
                     <p className="font-medium text-neutral-900">

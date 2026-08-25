@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { auth, signOut } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -16,11 +17,9 @@ export async function Navbar() {
     <header className="sticky top-0 z-20 border-b border-black/10 bg-white/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1E7A3D] text-sm font-bold text-white">
-            AK
-          </span>
+          <Image src="/logo.png" alt="ANI-KONEKTA" width={36} height={31} className="h-9 w-auto" priority />
           <span className="font-bold text-neutral-900">
-            ANI-<span className="text-[#1E7A3D]">KONEKTA</span>
+            ANI-<span className="text-brand-green-700">KONEKTA</span>
           </span>
         </Link>
 
@@ -29,13 +28,13 @@ export async function Navbar() {
             <>
               <Link
                 href={ROLE_HOME[session.user.role] ?? "/"}
-                className="hidden text-sm font-medium text-neutral-700 hover:text-[#1E7A3D] sm:inline"
+                className="hidden text-sm font-medium text-neutral-700 hover:text-brand-green-700 sm:inline"
               >
                 My Dashboard
               </Link>
               <span className="hidden text-sm text-neutral-500 sm:inline">
                 {session.user.name} ·{" "}
-                <span className="font-medium text-[#1E7A3D]">{session.user.role}</span>
+                <span className="font-medium text-brand-green-700">{session.user.role}</span>
               </span>
               <form
                 action={async () => {

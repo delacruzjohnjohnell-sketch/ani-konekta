@@ -40,7 +40,8 @@ export default async function HaulerDashboard() {
         </p>
       </div>
 
-      <Card>
+      <Card className="overflow-hidden">
+        <div className="h-1.5 bg-gradient-to-r from-brand-gold-400 to-brand-gold-700" />
         <CardHeader>
           <CardTitle>Orders ready for pooling</CardTitle>
           <CardDescription>
@@ -55,7 +56,7 @@ export default async function HaulerDashboard() {
           {unassignedOrders.map((o) => (
             <div
               key={o.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-gold-200 bg-brand-gold-50/40 p-3"
             >
               <div>
                 <p className="font-medium text-neutral-900">
@@ -76,7 +77,8 @@ export default async function HaulerDashboard() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden">
+        <div className="h-1.5 bg-gradient-to-r from-brand-green-500 to-brand-green-800" />
         <CardHeader>
           <CardTitle>My routes</CardTitle>
         </CardHeader>
@@ -85,7 +87,7 @@ export default async function HaulerDashboard() {
             <p className="text-sm text-neutral-500">No routes assigned yet.</p>
           )}
           {myRoutes.map((r) => (
-            <div key={r.id} className="rounded-lg border border-black/10 p-4">
+            <div key={r.id} className="rounded-lg border border-brand-green-200 bg-brand-green-50/30 p-4">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="font-medium text-neutral-900">

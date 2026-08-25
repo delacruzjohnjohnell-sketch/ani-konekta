@@ -39,7 +39,8 @@ export function OrderDetailView({
         </Badge>
       </div>
 
-      <Card>
+      <Card className="overflow-hidden">
+        <div className="h-1.5 harvest-band" />
         <CardHeader>
           <CardTitle>Pipeline status</CardTitle>
         </CardHeader>
@@ -60,7 +61,7 @@ export function OrderDetailView({
         <Card>
           <CardContent className="pt-5">
             <p className="text-sm text-neutral-500">Escrow status</p>
-            <p className="mt-1 text-xl font-bold text-[#C98A1A]">{order.escrowStatus}</p>
+            <p className="mt-1 text-xl font-bold text-brand-gold-600">{order.escrowStatus}</p>
           </CardContent>
         </Card>
         <Card>
@@ -123,7 +124,7 @@ export function OrderDetailView({
             </p>
             <Link
               href={`/order/${order.id}/trace`}
-              className="mt-2 inline-block text-sm font-medium text-[#1E7A3D]"
+              className="mt-2 inline-block text-sm font-medium text-brand-green-700"
             >
               View public traceability page →
             </Link>

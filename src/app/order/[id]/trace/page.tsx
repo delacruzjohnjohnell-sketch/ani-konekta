@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { prisma } from "@/lib/prisma";
@@ -23,9 +24,17 @@ export default async function TracePage({
   const qrDataUrl = await QRCode.toDataURL(traceUrl, { margin: 1, width: 220 });
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 px-4 py-12">
+    <div className="harvest-hero min-h-screen">
+      <div className="mx-auto max-w-2xl space-y-6 px-4 py-12">
       <div className="text-center">
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#C98A1A]">
+        <Image
+          src="/logo.png"
+          alt="ANI-KONEKTA"
+          width={48}
+          height={41}
+          className="mx-auto mb-3 h-10 w-auto"
+        />
+        <p className="text-sm font-semibold uppercase tracking-wide text-brand-gold-600">
           Traceability record
         </p>
         <h1 className="mt-1 text-2xl font-bold text-neutral-900">
@@ -33,10 +42,13 @@ export default async function TracePage({
         </h1>
       </div>
 
-      <Card>
+      <Card className="overflow-hidden">
+        <div className="h-1.5 harvest-band" />
         <CardContent className="flex flex-col items-center gap-4 pt-6">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qrDataUrl} alt="QR trace code" width={180} height={180} />
+          <div className="rounded-xl border-4 border-brand-gold-400 p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrDataUrl} alt="QR trace code" width={180} height={180} />
+          </div>
           <p className="text-xs text-neutral-500">
             Trace code: <code>{order.proofOfDelivery?.qrTraceCode ?? "pending delivery"}</code>
           </p>
@@ -79,6 +91,7 @@ export default async function TracePage({
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

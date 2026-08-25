@@ -35,8 +35,17 @@ export default async function AdminPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-        {Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => (
-          <Card key={key}>
+        {Object.entries(ORDER_STATUS_LABELS).map(([key, label], i) => (
+          <Card key={key} className="overflow-hidden">
+            <div
+              className={
+                key === "DISPUTED"
+                  ? "h-1.5 bg-gradient-to-r from-red-400 to-red-600"
+                  : i % 2 === 0
+                    ? "h-1.5 bg-gradient-to-r from-brand-green-500 to-brand-green-800"
+                    : "h-1.5 bg-gradient-to-r from-brand-gold-400 to-brand-gold-700"
+              }
+            />
             <CardContent className="pt-5">
               <p className="text-xs text-neutral-500">{label}</p>
               <p className="mt-1 text-xl font-bold text-neutral-900">
@@ -47,14 +56,15 @@ export default async function AdminPage() {
         ))}
       </div>
 
-      <Card>
+      <Card className="overflow-hidden">
+        <div className="h-1.5 harvest-band" />
         <CardHeader>
           <CardTitle>Escrow ledger</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-neutral-600">
             Currently held in escrow across {escrowHeld.length} order(s):{" "}
-            <span className="font-semibold text-[#C98A1A]">{formatPeso(totalEscrowHeld)}</span>
+            <span className="font-semibold text-brand-gold-600">{formatPeso(totalEscrowHeld)}</span>
           </p>
         </CardContent>
       </Card>

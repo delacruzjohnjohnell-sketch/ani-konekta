@@ -17,9 +17,9 @@ export function StatusTimeline({ status }: { status: string }) {
                   className={cn(
                     "flex h-7 w-7 items-center justify-center rounded-full border-2 text-[11px] font-semibold",
                     done
-                      ? "border-[#1E7A3D] bg-[#1E7A3D] text-white"
+                      ? "border-brand-green-700 bg-gradient-to-br from-brand-green-500 to-brand-green-800 text-white"
                       : "border-neutral-300 bg-white text-neutral-400",
-                    active && "ring-2 ring-[#1E7A3D]/30"
+                    active && "ring-2 ring-brand-gold-500/50"
                   )}
                 >
                   {i + 1}
@@ -37,7 +37,7 @@ export function StatusTimeline({ status }: { status: string }) {
                 <div
                   className={cn(
                     "mx-1 h-0.5 w-8 sm:w-12",
-                    i < currentIndex ? "bg-[#1E7A3D]" : "bg-neutral-200"
+                    i < currentIndex ? "bg-brand-green-700" : "bg-neutral-200"
                   )}
                 />
               )}

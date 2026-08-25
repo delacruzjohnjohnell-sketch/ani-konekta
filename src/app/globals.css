@@ -1,8 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fffdf7;
+  --foreground: #16241c;
+
+  /* Warm harvest palette, sampled from the ANI-KONEKTA logo (rice-leaf
+     greens + golden grain amber). Keep these as the single source of
+     truth for brand color everywhere in the app. */
+  --brand-green-950: #0b2e1b;
+  --brand-green-900: #123d24;
+  --brand-green-800: #17502e;
+  --brand-green-700: #1e7a3d;
+  --brand-green-600: #248f48;
+  --brand-green-500: #2fa85a;
+  --brand-green-100: #e1f5e6;
+  --brand-green-50: #f3fbf4;
+
+  --brand-gold-900: #7a4300;
+  --brand-gold-700: #b36a00;
+  --brand-gold-600: #c98a1a;
+  --brand-gold-500: #f0a821;
+  --brand-gold-400: #f5b124;
+  --brand-gold-200: #ffe1a3;
+  --brand-gold-100: #fff3d6;
+  --brand-gold-50: #fffaf0;
 }
 
 @theme inline {
@@ -12,17 +33,44 @@
     system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-brand-green-950: var(--brand-green-950);
+  --color-brand-green-900: var(--brand-green-900);
+  --color-brand-green-800: var(--brand-green-800);
+  --color-brand-green-700: var(--brand-green-700);
+  --color-brand-green-600: var(--brand-green-600);
+  --color-brand-green-500: var(--brand-green-500);
+  --color-brand-green-100: var(--brand-green-100);
+  --color-brand-green-50: var(--brand-green-50);
+
+  --color-brand-gold-900: var(--brand-gold-900);
+  --color-brand-gold-700: var(--brand-gold-700);
+  --color-brand-gold-600: var(--brand-gold-600);
+  --color-brand-gold-500: var(--brand-gold-500);
+  --color-brand-gold-400: var(--brand-gold-400);
+  --color-brand-gold-200: var(--brand-gold-200);
+  --color-brand-gold-100: var(--brand-gold-100);
+  --color-brand-gold-50: var(--brand-gold-50);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Sunrise-over-the-ricefields gradient — echoes the sun + green fields in
+   the logo. Used behind the landing hero and a few CTA bands. */
+.harvest-hero {
+  background:
+    radial-gradient(ellipse 70% 60% at 85% 15%, rgba(245, 177, 36, 0.35), transparent 60%),
+    linear-gradient(160deg, var(--brand-green-50) 0%, #fbf3df 55%, var(--brand-gold-50) 100%);
+}
+
+.harvest-band {
+  background: linear-gradient(120deg, var(--brand-green-800) 0%, var(--brand-green-700) 55%, var(--brand-green-600) 100%);
+}
+
+.harvest-card-accent {
+  background: linear-gradient(135deg, var(--brand-gold-400), var(--brand-gold-600));
 }

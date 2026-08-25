@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
+import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
@@ -70,7 +71,7 @@ function LoginForm() {
         </form>
         <p className="mt-4 text-center text-sm text-neutral-500">
           No account?{" "}
-          <Link href="/register" className="font-medium text-[#1E7A3D]">
+          <Link href="/register" className="font-medium text-brand-green-700">
             Sign up
           </Link>
         </p>
@@ -81,10 +82,16 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="mx-auto flex max-w-md flex-col justify-center px-4 py-16">
-      <Suspense fallback={null}>
-        <LoginForm />
-      </Suspense>
+    <div className="harvest-hero flex min-h-[calc(100vh-4rem)] flex-col justify-center px-4 py-16">
+      <div className="mx-auto w-full max-w-md">
+        <div className="mb-6 flex flex-col items-center gap-2">
+          <Image src="/logo.png" alt="ANI-KONEKTA" width={64} height={55} className="h-14 w-auto" priority />
+          <p className="text-sm font-medium text-brand-green-800">Welcome back to ANI-KONEKTA</p>
+        </div>
+        <Suspense fallback={null}>
+          <LoginForm />
+        </Suspense>
+      </div>
     </div>
   );
 }
