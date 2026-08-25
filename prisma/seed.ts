@@ -106,6 +106,39 @@ async function main() {
     passwordHash,
   });
 
+  // Commission & fee engine rules (idempotent — re-running seed won't
+  // duplicate these). See src/lib/commission.ts for how rules are selected.
+  const existingDefaultRule = await prisma.commissionConfig.findFirst({
+    where: { cropType: null, minOrderVolumeKg: null, effectiveTo: null },
+  });
+  if (!existingDefaultRule) {
+    await prisma.commissionConfig.create({
+      data: {
+        cropType: null,
+        minOrderVolumeKg: null,
+        sellerCommissionRatePercent: 6.0,
+        buyerLogisticsFeePercent: 2.0,
+        haulerPayoutPercentOfLogisticsFee: 75.0,
+        minFeeFloorPHP: 20.0,
+      },
+    });
+  }
+  const existingBulkRule = await prisma.commissionConfig.findFirst({
+    where: { cropType: null, minOrderVolumeKg: 1000, effectiveTo: null },
+  });
+  if (!existingBulkRule) {
+    await prisma.commissionConfig.create({
+      data: {
+        cropType: null,
+        minOrderVolumeKg: 1000,
+        sellerCommissionRatePercent: 4.5,
+        buyerLogisticsFeePercent: 2.0,
+        haulerPayoutPercentOfLogisticsFee: 75.0,
+        minFeeFloorPHP: 20.0,
+      },
+    });
+  }
+
   // Mock price history (moving-average source for src/lib/pricing.ts)
   const priceHistory = [
     { cropType: "Palay (Rice)", municipality: "Talavera", base: 22 },

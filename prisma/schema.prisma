@@ -121,6 +121,8 @@ model Order {
   seller           User         @relation("SellerOrders", fields: [sellerId], references: [id])
   volumeKg         Float
   agreedPricePerKg Float
+  // Produce price only (volumeKg * agreedPricePerKg). The buyer's actual
+  // escrowed total also includes logisticsFeeAmountPHP — see below.
   totalAmount      Float
   status           OrderStatus  @default(LISTED)
   escrowStatus     EscrowStatus @default(HELD)
@@ -133,6 +135,52 @@ model Order {
 
   proofOfDelivery  ProofOfDelivery?
   reputationEvents ReputationEvent[]
+
+  // --- Commission & fee engine snapshot (Feature: Configurable Commission
+  // & Fee Engine). Computed once at order-creation time from whichever
+  // CommissionConfig rule applied at that moment (see
+  // src/lib/commission.ts) and NEVER recomputed afterward — changing
+  // CommissionConfig rates later must not alter orders already placed.
+  // All fields are nullable because orders created before this feature
+  // shipped won't have them until prisma/backfill-commission-snapshots.ts
+  // is run against them.
+  commissionConfigId                 String?
+  commissionConfig                   CommissionConfig? @relation(fields: [commissionConfigId], references: [id])
+  appliedSellerCommissionRatePercent Float?
+  appliedBuyerLogisticsFeePercent    Float?
+  appliedHaulerPayoutPercent         Float?
+  sellerCommissionAmountPHP          Float?
+  logisticsFeeAmountPHP              Float?
+  haulerPayoutAmountPHP              Float?
+  platformNetRevenueAmountPHP        Float?
+  netPayoutToSellerPHP               Float?
+}
+
+// Configurable commission / logistics-fee rules. Rows are never deleted or
+// mutated in place once an order has snapshotted them — to change a rate,
+// end-date the current row (`effectiveTo`) and insert a new one. Rule
+// selection (most-specific-wins) lives in src/lib/commission.ts.
+model CommissionConfig {
+  id                                String    @id @default(cuid())
+  // null = applies to every crop unless a crop-specific rule also matches
+  cropType                          String?
+  // null = applies at any volume; otherwise a "at least this many kg" tier
+  minOrderVolumeKg                  Float?
+  sellerCommissionRatePercent       Float     @default(6.00)
+  buyerLogisticsFeePercent          Float     @default(2.00)
+  // Share of the collected logistics fee paid out to the hauler; the
+  // remainder is the platform's logistics margin.
+  haulerPayoutPercentOfLogisticsFee Float     @default(75.00)
+  // Floor on the platform's total net revenue recognized per order
+  // (seller commission + logistics margin), so tiny orders still cover
+  // payment-processing overhead.
+  minFeeFloorPHP                    Float     @default(20.00)
+  effectiveFrom                     DateTime  @default(now())
+  effectiveTo                       DateTime?
+  createdBy                         String?
+  createdAt                         DateTime  @default(now())
+
+  orders                            Order[]
 }
 
 model PooledRoute {

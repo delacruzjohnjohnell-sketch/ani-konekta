@@ -65,6 +65,11 @@ export default async function HaulerDashboard() {
                 <p className="text-sm text-neutral-500">
                   {o.seller.name} → {o.buyer.name} · {formatPeso(o.totalAmount)}
                 </p>
+                {o.haulerPayoutAmountPHP != null && (
+                  <p className="text-sm font-medium text-brand-gold-700">
+                    Expected payout: {formatPeso(o.haulerPayoutAmountPHP)}
+                  </p>
+                )}
               </div>
               <form action={acceptAndPoolOrder}>
                 <input type="hidden" name="orderId" value={o.id} />
@@ -107,6 +112,13 @@ export default async function HaulerDashboard() {
                   </li>
                 ))}
               </ul>
+
+              {r.orders.some((o) => o.haulerPayoutAmountPHP != null) && (
+                <p className="mb-3 text-sm font-medium text-brand-gold-700">
+                  Expected payout for this route:{" "}
+                  {formatPeso(r.orders.reduce((s, o) => s + (o.haulerPayoutAmountPHP ?? 0), 0))}
+                </p>
+              )}
 
               {r.status !== "DELIVERED" && (
                 <form action={advanceRouteStatus} className="flex flex-wrap items-end gap-2">

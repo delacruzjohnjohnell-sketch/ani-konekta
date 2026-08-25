@@ -22,6 +22,8 @@ export function OrderDetailView({
   order: FullOrder;
   viewerRole: "BUYER" | "SELLER" | "ADMIN" | "HAULER";
 }) {
+  const hasCommissionSnapshot = order.logisticsFeeAmountPHP != null;
+
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -52,7 +54,7 @@ export function OrderDetailView({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">Total amount</p>
+            <p className="text-sm text-neutral-500">Produce price</p>
             <p className="mt-1 text-xl font-bold text-neutral-900">
               {formatPeso(order.totalAmount)}
             </p>
@@ -73,6 +75,64 @@ export function OrderDetailView({
           </CardContent>
         </Card>
       </div>
+
+      {hasCommissionSnapshot && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Price breakdown</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {(viewerRole === "BUYER" || viewerRole === "ADMIN") && (
+              <>
+                <div className="flex justify-between text-neutral-700">
+                  <span>Produce price</span>
+                  <span className="font-medium">{formatPeso(order.totalAmount)}</span>
+                </div>
+                <div className="flex justify-between text-neutral-700">
+                  <span>Logistics / delivery fee ({order.appliedBuyerLogisticsFeePercent}%)</span>
+                  <span className="font-medium">{formatPeso(order.logisticsFeeAmountPHP!)}</span>
+                </div>
+                <div className="flex justify-between border-t border-black/10 pt-2 font-semibold text-neutral-900">
+                  <span>You pay (total)</span>
+                  <span>{formatPeso(order.totalAmount + order.logisticsFeeAmountPHP!)}</span>
+                </div>
+              </>
+            )}
+            {(viewerRole === "SELLER" || viewerRole === "ADMIN") && (
+              <>
+                {viewerRole === "ADMIN" && <div className="h-px bg-black/10" />}
+                <div className="flex justify-between text-neutral-700">
+                  <span>Order value</span>
+                  <span className="font-medium">{formatPeso(order.totalAmount)}</span>
+                </div>
+                <div className="flex justify-between text-neutral-500">
+                  <span>Platform commission ({order.appliedSellerCommissionRatePercent}%)</span>
+                  <span>− {formatPeso(order.sellerCommissionAmountPHP!)}</span>
+                </div>
+                <div className="flex justify-between border-t border-black/10 pt-2 font-semibold text-brand-green-700">
+                  <span>You receive</span>
+                  <span>{formatPeso(order.netPayoutToSellerPHP!)}</span>
+                </div>
+              </>
+            )}
+            {(viewerRole === "HAULER" || viewerRole === "ADMIN") && order.haulerPayoutAmountPHP != null && (
+              <>
+                {viewerRole === "ADMIN" && <div className="h-px bg-black/10" />}
+                <div className="flex justify-between font-semibold text-brand-gold-700">
+                  <span>Hauler payout ({order.appliedHaulerPayoutPercent}% of logistics fee)</span>
+                  <span>{formatPeso(order.haulerPayoutAmountPHP)}</span>
+                </div>
+              </>
+            )}
+            {viewerRole === "ADMIN" && order.platformNetRevenueAmountPHP != null && (
+              <div className="flex justify-between border-t border-black/10 pt-2 font-semibold text-neutral-900">
+                <span>Platform net revenue</span>
+                <span>{formatPeso(order.platformNetRevenueAmountPHP)}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {order.route && (
         <Card>

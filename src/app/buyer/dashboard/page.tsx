@@ -143,7 +143,7 @@ export default async function BuyerDashboard({
                 <form action={placeOrder}>
                   <input type="hidden" name="listingId" value={l.id} />
                   <Button type="submit" size="sm">
-                    Order this ({formatPeso(l.volumeKg * l.askingPricePerKg)})
+                    Order this ({formatPeso(l.volumeKg * l.askingPricePerKg)} + logistics fee)
                   </Button>
                 </form>
               </div>

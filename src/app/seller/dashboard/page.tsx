@@ -4,8 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ListingPricePreview } from "@/components/listing-price-preview";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { createListing } from "@/app/actions";
+import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/lib/commission";
 import Link from "next/link";
 
 const MUNICIPALITIES = [
@@ -24,7 +26,7 @@ export default async function SellerDashboard() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [me, listings, orders] = await Promise.all([
+  const [me, listings, orders, activeCommissionConfigs] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.listing.findMany({
       where: { sellerId: userId },
@@ -35,10 +37,21 @@ export default async function SellerDashboard() {
       include: { listing: true, buyer: true },
       orderBy: { createdAt: "desc" },
     }),
+    getActiveCommissionConfigs(),
   ]);
 
+  // Preview-only default rate for the listing form — the true rate for any
+  // given order is resolved (possibly to a more specific rule) at order
+  // creation time, never here.
+  const defaultCommissionConfig = selectApplicableCommissionConfig(activeCommissionConfigs, "", 0);
+  const previewSellerCommissionRatePercent = defaultCommissionConfig?.sellerCommissionRatePercent ?? 6;
+
   const settledOrders = orders.filter((o) => o.status === "SETTLED");
-  const earnings = settledOrders.reduce((s, o) => s + o.totalAmount, 0);
+  // Sellers are paid totalAmount minus commission — netPayoutToSellerPHP is
+  // the correct figure. Orders that predate the commission engine (not yet
+  // backfilled) fall back to totalAmount so old settled earnings don't
+  // silently disappear from this card.
+  const earnings = settledOrders.reduce((s, o) => s + (o.netPayoutToSellerPHP ?? o.totalAmount), 0);
   const pendingEscrow = orders
     .filter((o) => o.escrowStatus === "HELD")
     .reduce((s, o) => s + o.totalAmount, 0);
@@ -93,23 +106,7 @@ export default async function SellerDashboard() {
                 <Label htmlFor="variety">Variety (optional)</Label>
                 <Input id="variety" name="variety" placeholder="RC-160" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="volumeKg">Volume (kg)</Label>
-                  <Input id="volumeKg" name="volumeKg" type="number" min="1" step="1" required />
-                </div>
-                <div>
-                  <Label htmlFor="askingPricePerKg">Asking price / kg (₱)</Label>
-                  <Input
-                    id="askingPricePerKg"
-                    name="askingPricePerKg"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-                </div>
-              </div>
+              <ListingPricePreview sellerCommissionRatePercent={previewSellerCommissionRatePercent} />
               <div>
                 <Label htmlFor="harvestDate">Harvest date</Label>
                 <Input id="harvestDate" name="harvestDate" type="date" required />

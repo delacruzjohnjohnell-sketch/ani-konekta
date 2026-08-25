@@ -8,6 +8,7 @@ import { suggestFairPrice } from "@/lib/pricing";
 import { paymentProvider } from "@/lib/payments";
 import { notifications } from "@/lib/notifications";
 import { poolOrdersByMunicipality } from "@/lib/routing";
+import { resolveCommissionForOrder } from "@/lib/commission";
 
 async function requireUser(role?: string) {
   const session = await auth();
@@ -73,6 +74,14 @@ export async function placeOrder(formData: FormData) {
 
   const totalAmount = listing.volumeKg * listing.askingPricePerKg;
 
+  // Commission & fee engine: snapshot the applicable rates/amounts onto the
+  // order now, once, forever — see src/lib/commission.ts.
+  const commission = await resolveCommissionForOrder(
+    listing.cropType,
+    listing.volumeKg,
+    totalAmount
+  );
+
   const order = await prisma.order.create({
     data: {
       listingId: listing.id,
@@ -83,6 +92,15 @@ export async function placeOrder(formData: FormData) {
       totalAmount,
       status: "ORDERED_ESCROWED",
       escrowStatus: "HELD",
+      commissionConfigId: commission.commissionConfigId,
+      appliedSellerCommissionRatePercent: commission.appliedSellerCommissionRatePercent,
+      appliedBuyerLogisticsFeePercent: commission.appliedBuyerLogisticsFeePercent,
+      appliedHaulerPayoutPercent: commission.appliedHaulerPayoutPercent,
+      sellerCommissionAmountPHP: commission.sellerCommissionAmountPHP,
+      logisticsFeeAmountPHP: commission.logisticsFeeAmountPHP,
+      haulerPayoutAmountPHP: commission.haulerPayoutAmountPHP,
+      platformNetRevenueAmountPHP: commission.platformNetRevenueAmountPHP,
+      netPayoutToSellerPHP: commission.netPayoutToSellerPHP,
     },
   });
 
@@ -91,9 +109,10 @@ export async function placeOrder(formData: FormData) {
     data: { status: "CLOSED" },
   });
 
+  // Buyer's escrow hold covers produce price + logistics fee together.
   await paymentProvider.holdFunds({
     orderId: order.id,
-    amount: totalAmount,
+    amount: commission.buyerGrandTotalPHP,
     buyerId: user.id,
   });
 
@@ -143,6 +162,8 @@ export async function bulkMatchOrder(formData: FormData) {
   );
   const agreedPricePerKg = totalAmount / totalVolumeKg;
 
+  const commission = await resolveCommissionForOrder(cropType, totalVolumeKg, totalAmount);
+
   const order = await prisma.order.create({
     data: {
       listingId: listings[0].id,
@@ -154,6 +175,15 @@ export async function bulkMatchOrder(formData: FormData) {
       status: "ORDERED_ESCROWED",
       escrowStatus: "HELD",
       isBulkMatch: true,
+      commissionConfigId: commission.commissionConfigId,
+      appliedSellerCommissionRatePercent: commission.appliedSellerCommissionRatePercent,
+      appliedBuyerLogisticsFeePercent: commission.appliedBuyerLogisticsFeePercent,
+      appliedHaulerPayoutPercent: commission.appliedHaulerPayoutPercent,
+      sellerCommissionAmountPHP: commission.sellerCommissionAmountPHP,
+      logisticsFeeAmountPHP: commission.logisticsFeeAmountPHP,
+      haulerPayoutAmountPHP: commission.haulerPayoutAmountPHP,
+      platformNetRevenueAmountPHP: commission.platformNetRevenueAmountPHP,
+      netPayoutToSellerPHP: commission.netPayoutToSellerPHP,
     },
   });
 
@@ -164,7 +194,7 @@ export async function bulkMatchOrder(formData: FormData) {
 
   await paymentProvider.holdFunds({
     orderId: order.id,
-    amount: totalAmount,
+    amount: commission.buyerGrandTotalPHP,
     buyerId: user.id,
   });
 
@@ -273,15 +303,33 @@ export async function confirmDelivery(formData: FormData) {
   const user = await requireUser("BUYER");
   const orderId = String(formData.get("orderId"));
 
-  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  const order = await prisma.order.findUniqueOrThrow({
+    where: { id: orderId },
+    include: { route: true },
+  });
   if (order.buyerId !== user.id) throw new Error("Not your order.");
   if (order.status !== "DELIVERED") throw new Error("Order is not yet delivered.");
 
+  // Settlement pays out three ways from the escrowed grand total, using the
+  // rates/amounts snapshotted onto the order at creation time (never
+  // recomputed here) — see src/lib/commission.ts.
+  // Pre-migration orders may not have a snapshot yet; fall back to the full
+  // gross amount for the seller so nothing silently pays out ₱0.
+  const netPayoutToSeller = order.netPayoutToSellerPHP ?? order.totalAmount;
+
   await paymentProvider.releaseFunds({
     orderId: order.id,
-    amount: order.totalAmount,
+    amount: netPayoutToSeller,
     sellerId: order.sellerId,
   });
+
+  if (order.haulerPayoutAmountPHP && order.route) {
+    await paymentProvider.payHauler({
+      orderId: order.id,
+      amount: order.haulerPayoutAmountPHP,
+      haulerId: order.route.haulerId,
+    });
+  }
 
   await prisma.order.update({
     where: { id: order.id },
@@ -355,4 +403,62 @@ export async function resolveDispute(formData: FormData) {
   });
 
   revalidatePath("/admin");
+}
+
+// ---------------------------------------------------------------------------
+// ADMIN: create a new CommissionConfig rule and view/manage the fee engine.
+// Existing rows are never edited in place — to change a rate, end-date the
+// old rule and add a new one, so every order's snapshot always points at an
+// immutable, historically-accurate rule.
+// ---------------------------------------------------------------------------
+export async function createCommissionConfig(formData: FormData) {
+  const user = await requireUser("ADMIN");
+
+  const cropType = String(formData.get("cropType") ?? "").trim() || null;
+  const minOrderVolumeKgRaw = String(formData.get("minOrderVolumeKg") ?? "").trim();
+  const minOrderVolumeKg = minOrderVolumeKgRaw ? Number(minOrderVolumeKgRaw) : null;
+  const sellerCommissionRatePercent = Number(formData.get("sellerCommissionRatePercent"));
+  const buyerLogisticsFeePercent = Number(formData.get("buyerLogisticsFeePercent"));
+  const haulerPayoutPercentOfLogisticsFee = Number(
+    formData.get("haulerPayoutPercentOfLogisticsFee")
+  );
+  const minFeeFloorPHP = Number(formData.get("minFeeFloorPHP"));
+
+  if (
+    Number.isNaN(sellerCommissionRatePercent) ||
+    Number.isNaN(buyerLogisticsFeePercent) ||
+    Number.isNaN(haulerPayoutPercentOfLogisticsFee) ||
+    Number.isNaN(minFeeFloorPHP)
+  ) {
+    throw new Error("All rate fields are required and must be numbers.");
+  }
+
+  await prisma.commissionConfig.create({
+    data: {
+      cropType,
+      minOrderVolumeKg,
+      sellerCommissionRatePercent,
+      buyerLogisticsFeePercent,
+      haulerPayoutPercentOfLogisticsFee,
+      minFeeFloorPHP,
+      createdBy: user.id,
+    },
+  });
+
+  revalidatePath("/admin/commission");
+}
+
+// ADMIN: end-date a rule (sets effectiveTo = now) instead of deleting it —
+// orders that already snapshotted it keep referencing it via
+// Order.commissionConfigId, so history stays intact.
+export async function endDateCommissionConfig(formData: FormData) {
+  await requireUser("ADMIN");
+  const configId = String(formData.get("configId"));
+
+  await prisma.commissionConfig.update({
+    where: { id: configId },
+    data: { effectiveTo: new Date() },
+  });
+
+  revalidatePath("/admin/commission");
 }

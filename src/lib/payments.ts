@@ -28,6 +28,18 @@ export interface PaymentProvider {
     amount: number;
     buyerId: string;
   }): Promise<{ reference: string }>;
+
+  /**
+   * Pays the hauler's share of the logistics fee out of escrow at
+   * settlement time. The platform's own logistics margin (the rest of the
+   * logistics fee) simply stays with the platform and isn't "paid" anywhere
+   * — it's recognized as revenue via Order.platformNetRevenueAmountPHP.
+   */
+  payHauler(params: {
+    orderId: string;
+    amount: number;
+    haulerId: string;
+  }): Promise<{ reference: string }>;
 }
 
 export const MockPaymentProvider: PaymentProvider = {
@@ -48,6 +60,12 @@ export const MockPaymentProvider: PaymentProvider = {
       `[payments:mock] REFUND ₱${amount.toFixed(2)} to buyer=${buyerId} for order=${orderId}`
     );
     return { reference: `mock_refund_${orderId}` };
+  },
+  async payHauler({ orderId, amount, haulerId }) {
+    console.log(
+      `[payments:mock] PAY HAULER ₱${amount.toFixed(2)} to hauler=${haulerId} for order=${orderId} (logistics fee payout)`
+    );
+    return { reference: `mock_hauler_payout_${orderId}` };
   },
 };
 

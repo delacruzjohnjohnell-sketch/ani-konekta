@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +7,7 @@ import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { resolveDispute } from "@/app/actions";
 
 export default async function AdminPage() {
-  const [orders, disputed, escrowHeld] = await Promise.all([
+  const [orders, disputed, escrowHeld, settledOrders] = await Promise.all([
     prisma.order.findMany({
       include: { listing: true, buyer: true, seller: true },
       orderBy: { createdAt: "desc" },
@@ -19,6 +20,9 @@ export default async function AdminPage() {
     prisma.order.findMany({
       where: { escrowStatus: "HELD" },
     }),
+    prisma.order.findMany({
+      where: { status: "SETTLED" },
+    }),
   ]);
 
   const pipelineCounts = orders.reduce<Record<string, number>>((acc, o) => {
@@ -27,11 +31,29 @@ export default async function AdminPage() {
   }, {});
   const totalEscrowHeld = escrowHeld.reduce((s, o) => s + o.totalAmount, 0);
 
+  // Revenue report: sums seller commissions and platform logistics margin
+  // across SETTLED orders, from each order's permanent snapshot fields.
+  // Orders predating the commission engine (no snapshot yet) are counted
+  // separately so the totals below aren't silently understated.
+  const withSnapshot = settledOrders.filter((o) => o.platformNetRevenueAmountPHP != null);
+  const missingSnapshot = settledOrders.length - withSnapshot.length;
+  const totalSellerCommissions = withSnapshot.reduce((s, o) => s + (o.sellerCommissionAmountPHP ?? 0), 0);
+  const totalLogisticsMargin = withSnapshot.reduce(
+    (s, o) => s + ((o.logisticsFeeAmountPHP ?? 0) - (o.haulerPayoutAmountPHP ?? 0)),
+    0
+  );
+  const totalPlatformRevenue = withSnapshot.reduce((s, o) => s + (o.platformNetRevenueAmountPHP ?? 0), 0);
+
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-      <div>
-        <h1 className="text-2xl font-bold text-neutral-900">Admin overview</h1>
-        <p className="text-neutral-600">Order pipeline, disputes, and the escrow ledger.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Admin overview</h1>
+          <p className="text-neutral-600">Order pipeline, disputes, and the escrow ledger.</p>
+        </div>
+        <Link href="/admin/commission">
+          <Button variant="outline">Manage commission rules →</Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -65,6 +87,49 @@ export default async function AdminPage() {
           <p className="text-sm text-neutral-600">
             Currently held in escrow across {escrowHeld.length} order(s):{" "}
             <span className="font-semibold text-brand-gold-600">{formatPeso(totalEscrowHeld)}</span>
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="h-1.5 bg-gradient-to-r from-brand-green-500 via-brand-gold-400 to-brand-gold-700" />
+        <CardHeader>
+          <CardTitle>Revenue report (settled orders)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-sm text-neutral-500">Seller commissions</p>
+              <p className="mt-1 text-xl font-bold text-neutral-900">
+                {formatPeso(totalSellerCommissions)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-neutral-500">Logistics margin</p>
+              <p className="mt-1 text-xl font-bold text-neutral-900">
+                {formatPeso(totalLogisticsMargin)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-neutral-500">Total platform revenue</p>
+              <p className="mt-1 text-xl font-bold text-brand-green-700">
+                {formatPeso(totalPlatformRevenue)}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-neutral-500">
+            Across {withSnapshot.length} settled order(s) with a commission snapshot.
+            {missingSnapshot > 0 && (
+              <>
+                {" "}
+                {missingSnapshot} older settled order(s) predate the commission engine and are
+                excluded until{" "}
+                <code className="rounded bg-neutral-100 px-1">
+                  prisma/backfill-commission-snapshots.ts
+                </code>{" "}
+                is run.
+              </>
+            )}
           </p>
         </CardContent>
       </Card>
