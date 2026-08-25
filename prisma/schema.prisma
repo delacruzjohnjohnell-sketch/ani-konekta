@@ -1,0 +1,182 @@
+// ANI-KONEKTA — Prisma schema
+// Postgres is required (scalar list fields like String[] are Postgres-only).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SELLER
+  BUYER
+  HAULER
+  ADMIN
+}
+
+enum QualityTag {
+  GRADE_A
+  ORGANIC
+  GAP_CERTIFIED
+  STANDARD
+}
+
+enum ListingStatus {
+  ACTIVE
+  MATCHED
+  CLOSED
+}
+
+// Explicit order-status pipeline per spec:
+// LISTED -> MATCHED -> ORDERED_ESCROWED -> POOLED -> IN_TRANSIT -> DELIVERED -> SETTLED
+enum OrderStatus {
+  LISTED
+  MATCHED
+  ORDERED_ESCROWED
+  POOLED
+  IN_TRANSIT
+  DELIVERED
+  SETTLED
+  DISPUTED
+}
+
+enum EscrowStatus {
+  HELD
+  RELEASED
+  REFUNDED
+}
+
+enum RouteStatus {
+  ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+}
+
+enum ReputationEventType {
+  ON_TIME
+  LATE
+  DISPUTE
+  RESOLVED
+}
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  role           Role
+  phone          String   @unique
+  email          String?  @unique
+  passwordHash   String
+  reputationScore Int     @default(100)
+  municipality   String?
+  createdAt      DateTime @default(now())
+
+  cooperativeId  String?
+  cooperative    Cooperative? @relation(fields: [cooperativeId], references: [id])
+
+  listings       Listing[]      @relation("SellerListings")
+  buyerOrders    Order[]        @relation("BuyerOrders")
+  sellerOrders   Order[]        @relation("SellerOrders")
+  haulerRoutes   PooledRoute[]  @relation("HaulerRoutes")
+  reputationEvents ReputationEvent[]
+}
+
+model Cooperative {
+  id           String   @id @default(cuid())
+  name         String
+  municipality String
+  members      User[]
+  createdAt    DateTime @default(now())
+}
+
+model Listing {
+  id                  String        @id @default(cuid())
+  sellerId            String
+  seller              User          @relation("SellerListings", fields: [sellerId], references: [id])
+  cropType            String
+  variety             String?
+  volumeKg            Float
+  harvestDate         DateTime
+  askingPricePerKg     Float
+  aiSuggestedPricePerKg Float
+  qualityTag          QualityTag    @default(STANDARD)
+  municipality        String
+  status              ListingStatus @default(ACTIVE)
+  photoUrl            String?
+  createdAt           DateTime      @default(now())
+
+  orders              Order[]
+}
+
+model Order {
+  id               String       @id @default(cuid())
+  listingId        String
+  listing          Listing      @relation(fields: [listingId], references: [id])
+  buyerId          String
+  buyer            User         @relation("BuyerOrders", fields: [buyerId], references: [id])
+  sellerId         String
+  seller           User         @relation("SellerOrders", fields: [sellerId], references: [id])
+  volumeKg         Float
+  agreedPricePerKg Float
+  totalAmount      Float
+  status           OrderStatus  @default(LISTED)
+  escrowStatus     EscrowStatus @default(HELD)
+  isBulkMatch      Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  routeId          String?
+  route            PooledRoute? @relation(fields: [routeId], references: [id])
+
+  proofOfDelivery  ProofOfDelivery?
+  reputationEvents ReputationEvent[]
+}
+
+model PooledRoute {
+  id            String      @id @default(cuid())
+  haulerId      String
+  hauler        User        @relation("HaulerRoutes", fields: [haulerId], references: [id])
+  orders        Order[]
+  pickupPoints  String[]
+  dropoffPoint  String
+  status        RouteStatus @default(ASSIGNED)
+  etaMinutes    Int?
+  distanceKm    Float?
+  createdAt     DateTime    @default(now())
+}
+
+model ProofOfDelivery {
+  id               String   @id @default(cuid())
+  orderId          String   @unique
+  order            Order    @relation(fields: [orderId], references: [id])
+  deliveredAt      DateTime @default(now())
+  confirmedByBuyer Boolean  @default(false)
+  qrTraceCode      String   @unique @default(cuid())
+  photoUrl         String?
+  notes            String?
+}
+
+model ReputationEvent {
+  id      String              @id @default(cuid())
+  userId  String
+  user    User                @relation(fields: [userId], references: [id])
+  orderId String?
+  order   Order?              @relation(fields: [orderId], references: [id])
+  type    ReputationEventType
+  delta   Int
+  note    String?
+  createdAt DateTime @default(now())
+}
+
+// Seeded with mock historical data; powers the moving-average pricing heuristic
+// in src/lib/pricing.ts. Clearly a placeholder for a future ML model.
+model PriceTrend {
+  id            String   @id @default(cuid())
+  cropType      String
+  municipality  String
+  avgPricePerKg Float
+  recordedAt    DateTime
+}
