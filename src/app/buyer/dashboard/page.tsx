@@ -90,10 +90,6 @@ export default async function BuyerDashboard({
                 <option value="GAP_CERTIFIED">GAP-certified</option>
               </Select>
             </div>
-            <div>
-              <Label htmlFor="maxPrice">Max ₱/kg</Label>
-              <Input id="maxPrice" name="maxPrice" type="number" defaultValue={params.maxPrice} />
-            </div>
             <div className="col-span-2 sm:col-span-4">
               <Button type="submit" variant="outline">
                 Apply filters
@@ -101,7 +97,16 @@ export default async function BuyerDashboard({
             </div>
           </form>
 
-          <form action={bulkMatchOrder} className="space-y-3">
+          {/* NOTE: these must NOT be nested <form> elements — a <form> inside
+              another <form> is invalid HTML. Browsers silently reparent the
+              inner form out of the outer one, which doesn't match what React
+              rendered server-side and causes a hydration mismatch (React
+              error #418) that leaves the buttons inert (clicks fire no
+              request at all). Each listing's "Order this" is its own
+              standalone form; the bulk-match checkboxes live outside any
+              form and are associated with the bulk-match form purely via
+              the HTML5 form="..." attribute. */}
+          <div className="space-y-3">
             {listings.length === 0 && (
               <p className="text-sm text-neutral-500">No listings match your filters.</p>
             )}
@@ -111,7 +116,13 @@ export default async function BuyerDashboard({
                 className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-black/10 p-3"
               >
                 <label className="flex items-center gap-3">
-                  <input type="checkbox" name="listingIds" value={l.id} className="h-4 w-4" />
+                  <input
+                    type="checkbox"
+                    name="listingIds"
+                    value={l.id}
+                    form="bulk-match-form"
+                    className="h-4 w-4"
+                  />
                   <div>
                     <p className="font-medium text-neutral-900">
                       {l.cropType} {l.variety ? `— ${l.variety}` : ""} · {l.volumeKg} kg
@@ -134,11 +145,13 @@ export default async function BuyerDashboard({
               </div>
             ))}
             {listings.length >= 2 && (
-              <Button type="submit" variant="secondary">
-                Bulk-match selected listings into one order
-              </Button>
+              <form id="bulk-match-form" action={bulkMatchOrder}>
+                <Button type="submit" variant="secondary">
+                  Bulk-match selected listings into one order
+                </Button>
+              </form>
             )}
-          </form>
+          </div>
         </CardContent>
       </Card>
 
