@@ -54,5 +54,21 @@ export async function GET(request: NextRequest) {
     results.tokenNoSecretArgError = String(e);
   }
 
+  try {
+    const tokenSecureCookie = await getToken({
+      req: request,
+      secret: nextauthSecret,
+      secureCookie: true,
+    });
+    results.tokenSecureCookie = tokenSecureCookie
+      ? { role: tokenSecureCookie.role, id: tokenSecureCookie.id }
+      : null;
+  } catch (e) {
+    results.tokenSecureCookieError = String(e);
+  }
+
+  results.forwardedProto = request.headers.get("x-forwarded-proto");
+  results.reqUrl = request.url;
+
   return NextResponse.json(results);
 }
