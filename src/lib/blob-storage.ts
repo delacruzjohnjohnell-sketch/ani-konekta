@@ -38,10 +38,14 @@ export function validatePhotoFile(file: { type: string; size: number }) {
 export async function uploadPhoto(file: File, folder: string): Promise<string> {
   validatePhotoFile(file);
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  // On Vercel, a connected Blob store authenticates automatically via OIDC
+  // (process.env.VERCEL is set on every Vercel deployment) -- no explicit
+  // token needed there. Locally (npm run dev), there's no OIDC federation,
+  // so BLOB_READ_WRITE_TOKEN must be set in .env or uploads will fail.
+  if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.VERCEL) {
     throw new Error(
       "Photo upload is not configured yet: BLOB_READ_WRITE_TOKEN is not set. " +
-        "Create a Vercel Blob store and set this env var (locally in .env and in your Vercel project settings)."
+        "Copy it from your Vercel Blob store's Settings -> .env.local tab into your local .env file."
     );
   }
 
