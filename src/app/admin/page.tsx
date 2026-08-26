@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { resolveDispute } from "@/app/actions";
+import { findLegacyPhotoRecords } from "@/lib/legacy-photos";
 
 export default async function AdminPage() {
   const [orders, disputed, escrowHeld, settledOrders] = await Promise.all([
@@ -43,6 +44,9 @@ export default async function AdminPage() {
     0
   );
   const totalPlatformRevenue = withSnapshot.reduce((s, o) => s + (o.platformNetRevenueAmountPHP ?? 0), 0);
+
+  const legacyPhotos = await findLegacyPhotoRecords();
+  const legacyPhotoCount = legacyPhotos.listings.length + legacyPhotos.proofs.length;
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
@@ -133,6 +137,39 @@ export default async function AdminPage() {
           </p>
         </CardContent>
       </Card>
+
+      {legacyPhotoCount > 0 && (
+        <Card className="overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-red-400 to-red-600" />
+          <CardHeader>
+            <CardTitle>Legacy photo values flagged for re-upload</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-neutral-600">
+              These records hold a value that wasn&apos;t produced by the photo upload flow
+              (e.g. a pasted URL or local file path entered before direct file attachment was
+              required). They still render if the value happens to be a reachable URL, but
+              should be re-uploaded as a real photo by the seller/hauler.
+            </p>
+            {legacyPhotos.listings.map((l) => (
+              <div key={l.id} className="rounded-lg border border-red-200 bg-red-50/40 p-3 text-sm">
+                <p className="font-medium text-neutral-900">
+                  Listing {l.id.slice(-8)} · {l.cropType} (seller {l.sellerId.slice(-8)})
+                </p>
+                <p className="truncate text-neutral-500">{l.photoBlobKey}</p>
+              </div>
+            ))}
+            {legacyPhotos.proofs.map((p) => (
+              <div key={p.id} className="rounded-lg border border-red-200 bg-red-50/40 p-3 text-sm">
+                <p className="font-medium text-neutral-900">
+                  Proof of delivery {p.id.slice(-8)} · order {p.orderId.slice(-8)}
+                </p>
+                <p className="truncate text-neutral-500">{p.photoBlobKey}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

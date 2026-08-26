@@ -13,15 +13,9 @@
  *   npx tsx prisma/report-legacy-photo-urls.ts
  */
 import { PrismaClient } from "@prisma/client";
+import { looksLikeLegacyPhotoValue as looksLikeLegacyUrl } from "../src/lib/legacy-photos";
 
 const prisma = new PrismaClient();
-
-function looksLikeLegacyUrl(value: string): boolean {
-  if (!/^https?:\/\//i.test(value)) return false;
-  // Anything from our own Blob store is fine, however it got there.
-  if (/\.blob\.vercel-storage\.com/i.test(value)) return false;
-  return true;
-}
 
 async function main() {
   const [listings, proofs] = await Promise.all([
