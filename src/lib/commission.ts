@@ -35,7 +35,9 @@ export interface CommissionConfigLike {
 }
 
 export interface CommissionBreakdown {
-  commissionConfigId: string;
+  // null when computed from FALLBACK_COMMISSION_CONFIG (no real DB row) —
+  // never a foreign key that doesn't exist.
+  commissionConfigId: string | null;
   appliedSellerCommissionRatePercent: number;
   appliedBuyerLogisticsFeePercent: number;
   appliedHaulerPayoutPercent: number;
@@ -169,11 +171,36 @@ export async function getActiveCommissionConfigs(
   });
 }
 
+// Hard-coded last-resort defaults — must match the "default rule" that
+// prisma/seed.ts and prisma/ensure-default-commission-config.ts create in
+// the database (cropType: null, minOrderVolumeKg: null). This is a safety
+// net only: normal operation always uses the real DB-backed CommissionConfig
+// row so admins can see and change the rate from /admin/commission. This
+// fallback exists so that placing an order (and every downstream button
+// that depends on it — "Order this", bulk-match) can never hard-fail just
+// because the default row hasn't been seeded into a given database yet.
+// It is NOT tied to any CommissionConfig row (commissionConfigId stays
+// null on the order), exactly like orders that predate this feature.
+const FALLBACK_COMMISSION_CONFIG: Omit<CommissionConfigLike, "id"> = {
+  cropType: null,
+  minOrderVolumeKg: null,
+  sellerCommissionRatePercent: 6.0,
+  buyerLogisticsFeePercent: 2.0,
+  haulerPayoutPercentOfLogisticsFee: 75.0,
+  minFeeFloorPHP: 20.0,
+  effectiveFrom: new Date(0),
+  effectiveTo: null,
+};
+
 /**
  * DB-backed convenience wrapper: fetches the active rules, picks the most
  * specific one, and computes the breakdown — what src/app/actions.ts calls
- * at order-creation time. Throws if no CommissionConfig row applies (which
- * should only happen if the default rule was never seeded).
+ * at order-creation time. Falls back to FALLBACK_COMMISSION_CONFIG (with a
+ * null commissionConfigId on the resulting order) if no CommissionConfig
+ * row applies yet — see the comment above. This should be rare in practice
+ * (prisma/ensure-default-commission-config.ts keeps a real default row
+ * seeded on every production deploy) but placing an order must never 500
+ * just because that row is temporarily missing.
  */
 export async function resolveCommissionForOrder(
   cropType: string,
@@ -184,9 +211,11 @@ export async function resolveCommissionForOrder(
   const configs = await getActiveCommissionConfigs(at);
   const config = selectApplicableCommissionConfig(configs, cropType, volumeKg);
   if (!config) {
-    throw new Error(
-      "No active CommissionConfig rule applies (not even a default). Run `npm run db:seed` or add one from /admin/commission."
+    const breakdown = computeCommissionBreakdown(
+      { ...FALLBACK_COMMISSION_CONFIG, id: "" },
+      producePriceAmountPHP
     );
+    return { ...breakdown, commissionConfigId: null };
   }
   return computeCommissionBreakdown(config, producePriceAmountPHP);
 }
