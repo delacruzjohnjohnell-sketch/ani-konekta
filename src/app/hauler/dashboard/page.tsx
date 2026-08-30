@@ -5,8 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { PhotoUpload } from "@/components/ui/photo-upload";
-import { formatPeso } from "@/lib/utils";
+import { formatPeso, ROUTE_STATUS_LABELS } from "@/lib/utils";
 import { acceptAndPoolOrder, advanceRouteStatus } from "@/app/actions";
+import { StarRatingDisplay } from "@/components/ui/star-rating";
 
 const NEXT_LABEL: Record<string, string> = {
   ASSIGNED: "Mark picked up",
@@ -18,7 +19,8 @@ export default async function HaulerDashboard() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [unassignedOrders, myRoutes] = await Promise.all([
+  const [me, unassignedOrders, myRoutes] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.order.findMany({
       where: { status: "ORDERED_ESCROWED" },
       include: { listing: true, buyer: true, seller: true },
@@ -33,12 +35,18 @@ export default async function HaulerDashboard() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-      <div>
-        <h1 className="text-2xl font-bold text-neutral-900">Hauler dashboard</h1>
-        <p className="text-neutral-600">
-          Accept escrowed orders into pooled routes, then move them through pickup →
-          in-transit → delivered.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Hauler dashboard</h1>
+          <p className="text-neutral-600">
+            Accept escrowed orders into pooled routes, then move them through pickup →
+            in-transit → delivered.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm text-neutral-500">Your rating</p>
+          <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
+        </div>
       </div>
 
       <Card className="overflow-hidden">
@@ -97,13 +105,16 @@ export default async function HaulerDashboard() {
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="font-medium text-neutral-900">
-                    Route to {r.pickupPoints.join(", ")}
+                    Route to {r.dropoffPoint} — from {r.pickupPoints.join(", ")}
                   </p>
                   <p className="text-sm text-neutral-500">
-                    {r.distanceKm} km · ETA {r.etaMinutes} min · {r.orders.length} order(s)
+                    {r.distanceKm} km · ETA {r.etaMinutes} min · {r.orders.length} order(s) ·{" "}
+                    total load {r.orders.reduce((s, o) => s + o.volumeKg, 0)} kg
                   </p>
                 </div>
-                <Badge tone={r.status === "DELIVERED" ? "green" : "gold"}>{r.status}</Badge>
+                <Badge tone={r.status === "DELIVERED" ? "green" : "gold"}>
+                  {ROUTE_STATUS_LABELS[r.status] ?? r.status}
+                </Badge>
               </div>
 
               <ul className="mb-3 space-y-1 text-sm text-neutral-600">

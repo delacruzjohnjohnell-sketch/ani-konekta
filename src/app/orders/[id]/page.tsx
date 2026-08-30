@@ -16,7 +16,14 @@ export default async function OrderPage({
 
   const order = await prisma.order.findUnique({
     where: { id },
-    include: { listing: true, buyer: true, seller: true, proofOfDelivery: true, route: true },
+    include: {
+      listing: true,
+      buyer: true,
+      seller: true,
+      proofOfDelivery: true,
+      route: { include: { orders: true, hauler: true } },
+      ratings: true,
+    },
   });
   if (!order) notFound();
 
@@ -29,5 +36,5 @@ export default async function OrderPage({
 
   if (!allowed) notFound();
 
-  return <OrderDetailView order={order} viewerRole={role} />;
+  return <OrderDetailView order={order} viewerRole={role} viewerUserId={userId} />;
 }

@@ -76,6 +76,46 @@ export async function createListing(formData: FormData) {
 }
 
 // ---------------------------------------------------------------------------
+// SELLER: delete (soft-delete) a listing of their own.
+//
+// This never hard-deletes the row: Order.listingId is a required foreign
+// key, so any order — even a long-settled one — still needs its listing row
+// to exist to keep showing full transaction history (order-detail-view.tsx
+// reads order.listing.cropType etc. directly). Instead this sets
+// status: DELETED, which drops the listing out of every ACTIVE-only query
+// (the buyer marketplace, and the seller's own "My listings" list) while
+// leaving it fully intact for any order that references it.
+// ---------------------------------------------------------------------------
+export async function deleteListing(formData: FormData) {
+  const user = await requireUser("SELLER");
+  const listingId = String(formData.get("listingId"));
+
+  const listing = await prisma.listing.findUniqueOrThrow({
+    where: { id: listingId },
+  });
+  if (listing.sellerId !== user.id) {
+    throw new Error("You can only delete your own listings.");
+  }
+
+  const activeOrder = await prisma.order.findFirst({
+    where: { listingId, status: { not: "SETTLED" } },
+  });
+  if (activeOrder) {
+    throw new Error(
+      "This listing has an active or ongoing order and can't be deleted until that order is settled."
+    );
+  }
+
+  await prisma.listing.update({
+    where: { id: listingId },
+    data: { status: "DELETED" },
+  });
+
+  revalidatePath("/seller/dashboard");
+  revalidatePath("/buyer/dashboard");
+}
+
+// ---------------------------------------------------------------------------
 // BUYER: place a direct order against a single listing
 // ---------------------------------------------------------------------------
 export async function placeOrder(formData: FormData) {
@@ -389,6 +429,65 @@ export async function confirmDelivery(formData: FormData) {
 
   revalidatePath(`/buyer/order/${order.id}`);
   revalidatePath("/buyer/dashboard");
+}
+
+// ---------------------------------------------------------------------------
+// Any participant on a SETTLED order: rate another participant on that same
+// order (5-star system, replacing the old points-based reputationScore).
+// Both parties must have actually transacted together on this specific
+// order — buyer, seller, or the route's assigned hauler — and the order
+// must already be SETTLED, so ratings can only ever follow a real completed
+// transaction, never be posted speculatively or about a stranger.
+// ---------------------------------------------------------------------------
+export async function submitRating(formData: FormData) {
+  const user = await requireUser();
+  const orderId = String(formData.get("orderId"));
+  const rateeId = String(formData.get("rateeId"));
+  const stars = Number(formData.get("stars"));
+  const comment = String(formData.get("comment") ?? "").trim() || null;
+
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+    throw new Error("Rating must be a whole number of stars, 1 to 5.");
+  }
+  if (user.id === rateeId) {
+    throw new Error("You can't rate yourself.");
+  }
+
+  const order = await prisma.order.findUniqueOrThrow({
+    where: { id: orderId },
+    include: { route: true },
+  });
+  if (order.status !== "SETTLED") {
+    throw new Error("You can only rate a party after the order is fully settled.");
+  }
+
+  const participantIds = new Set(
+    [order.buyerId, order.sellerId, order.route?.haulerId].filter(
+      (id): id is string => !!id
+    )
+  );
+  if (!participantIds.has(user.id) || !participantIds.has(rateeId)) {
+    throw new Error("You can only rate someone you actually transacted with on this order.");
+  }
+
+  try {
+    await prisma.rating.create({
+      data: { orderId, raterId: user.id, rateeId, stars, comment },
+    });
+  } catch {
+    // Unique constraint on (orderId, raterId, rateeId) — already rated.
+    throw new Error("You've already rated this person for this order.");
+  }
+
+  await prisma.user.update({
+    where: { id: rateeId },
+    data: { ratingSum: { increment: stars }, ratingCount: { increment: 1 } },
+  });
+
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath(`/buyer/order/${orderId}`);
+  revalidatePath("/seller/dashboard");
+  revalidatePath("/hauler/dashboard");
 }
 
 // ---------------------------------------------------------------------------

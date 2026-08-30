@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { placeOrder, bulkMatchOrder } from "@/app/actions";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
+import { StarRatingDisplay } from "@/components/ui/star-rating";
 
 const MUNICIPALITIES = [
   "Cabanatuan City",
@@ -30,7 +31,8 @@ export default async function BuyerDashboard({
   const userId = session!.user.id;
   const params = await searchParams;
 
-  const [listings, orders, priceTrends] = await Promise.all([
+  const [me, listings, orders, priceTrends] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.listing.findMany({
       where: {
         status: "ACTIVE",
@@ -55,9 +57,15 @@ export default async function BuyerDashboard({
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-      <div>
-        <h1 className="text-2xl font-bold text-neutral-900">Buyer dashboard</h1>
-        <p className="text-neutral-600">Browse listings, place orders, track delivery.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Buyer dashboard</h1>
+          <p className="text-neutral-600">Browse listings, place orders, track delivery.</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm text-neutral-500">Your rating</p>
+          <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
+        </div>
       </div>
 
       <Card>

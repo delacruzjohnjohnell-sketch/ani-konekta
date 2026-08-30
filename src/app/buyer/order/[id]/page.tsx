@@ -13,10 +13,17 @@ export default async function BuyerOrderPage({
 
   const order = await prisma.order.findUnique({
     where: { id },
-    include: { listing: true, buyer: true, seller: true, proofOfDelivery: true, route: true },
+    include: {
+      listing: true,
+      buyer: true,
+      seller: true,
+      proofOfDelivery: true,
+      route: { include: { orders: true, hauler: true } },
+      ratings: true,
+    },
   });
 
   if (!order || order.buyerId !== session!.user.id) notFound();
 
-  return <OrderDetailView order={order} viewerRole="BUYER" />;
+  return <OrderDetailView order={order} viewerRole="BUYER" viewerUserId={session!.user.id} />;
 }

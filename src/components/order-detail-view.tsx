@@ -3,25 +3,29 @@ import { StatusTimeline } from "@/components/status-timeline";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
-import { confirmDelivery, flagDispute } from "@/app/actions";
+import { formatPeso, ORDER_STATUS_LABELS, ROUTE_STATUS_LABELS } from "@/lib/utils";
+import { confirmDelivery, flagDispute, submitRating } from "@/app/actions";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
-import type { Order, Listing, User, ProofOfDelivery, PooledRoute } from "@prisma/client";
+import { StarRatingDisplay, StarRatingInput } from "@/components/ui/star-rating";
+import type { Order, Listing, User, ProofOfDelivery, PooledRoute, Rating } from "@prisma/client";
 
 type FullOrder = Order & {
   listing: Listing;
   buyer: User;
   seller: User;
   proofOfDelivery: ProofOfDelivery | null;
-  route: PooledRoute | null;
+  route: (PooledRoute & { orders: Order[]; hauler: User }) | null;
+  ratings: Rating[];
 };
 
 export function OrderDetailView({
   order,
   viewerRole,
+  viewerUserId,
 }: {
   order: FullOrder;
   viewerRole: "BUYER" | "SELLER" | "ADMIN" | "HAULER";
+  viewerUserId: string;
 }) {
   const listingPhotoUrl = resolvePhotoUrl(order.listing.photoBlobKey);
   const proofPhotoUrl = resolvePhotoUrl(order.proofOfDelivery?.photoBlobKey);
@@ -154,13 +158,25 @@ export function OrderDetailView({
       )}
 
       {order.route && (
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-brand-gold-400 to-brand-gold-700" />
           <CardHeader>
-            <CardTitle>Pooled route</CardTitle>
+            <CardTitle>Pooled shipment</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-neutral-600">
-            <p>Status: {order.route.status}</p>
-            <p>Pickup: {order.route.pickupPoints.join(", ")}</p>
+          <CardContent className="space-y-1 text-sm text-neutral-600">
+            <p>
+              Logistics status:{" "}
+              <span className="font-medium text-neutral-900">
+                {ROUTE_STATUS_LABELS[order.route.status] ?? order.route.status}
+              </span>
+            </p>
+            <p>Pickup location(s): {order.route.pickupPoints.join(", ")}</p>
+            <p>Delivery destination: {order.route.dropoffPoint}</p>
+            <p>
+              Total load in this pooled shipment:{" "}
+              {order.route.orders.reduce((s, o) => s + o.volumeKg, 0)} kg across{" "}
+              {order.route.orders.length} order(s)
+            </p>
             <p>Est. distance: {order.route.distanceKm} km · Est. ETA: {order.route.etaMinutes} min</p>
           </CardContent>
         </Card>
@@ -218,6 +234,67 @@ export function OrderDetailView({
           </CardContent>
         </Card>
       )}
+
+      {order.status === "SETTLED" && viewerRole !== "ADMIN" && (() => {
+        // Ratings are only ever offered on a SETTLED order, and only between
+        // people who actually transacted together on it — this list is the
+        // same participant set submitRating enforces server-side.
+        const participants = [
+          { user: order.buyer, role: "Buyer" as const },
+          { user: order.seller, role: "Seller" as const },
+          ...(order.route ? [{ user: order.route.hauler, role: "Hauler" as const }] : []),
+        ];
+        const others = participants.filter((p) => p.user.id !== viewerUserId);
+        if (others.length === 0) return null;
+
+        return (
+          <Card className="overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-brand-gold-400 to-brand-gold-700" />
+            <CardHeader>
+              <CardTitle>Rate this transaction</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {others.map(({ user: ratee, role }) => {
+                const existing = order.ratings.find(
+                  (r) => r.raterId === viewerUserId && r.rateeId === ratee.id
+                );
+                if (existing) {
+                  return (
+                    <div key={ratee.id} className="text-sm text-neutral-600">
+                      <p className="mb-1">
+                        Your rating of {ratee.name} ({role}):
+                      </p>
+                      <StarRatingDisplay sum={existing.stars} count={1} />
+                      {existing.comment && (
+                        <p className="mt-1 italic text-neutral-500">&ldquo;{existing.comment}&rdquo;</p>
+                      )}
+                    </div>
+                  );
+                }
+                return (
+                  <form key={ratee.id} action={submitRating} className="space-y-2">
+                    <input type="hidden" name="orderId" value={order.id} />
+                    <input type="hidden" name="rateeId" value={ratee.id} />
+                    <p className="text-sm font-medium text-neutral-900">
+                      Rate {ratee.name} ({role})
+                    </p>
+                    <StarRatingInput name="stars" />
+                    <input
+                      type="text"
+                      name="comment"
+                      placeholder="Optional comment"
+                      className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm"
+                    />
+                    <Button type="submit" size="sm" variant="outline">
+                      Submit rating
+                    </Button>
+                  </form>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      })()}
     </div>
   );
 }

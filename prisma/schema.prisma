@@ -28,6 +28,12 @@ enum ListingStatus {
   ACTIVE
   MATCHED
   CLOSED
+  // Soft-delete only — the row is never hard-deleted so that any Order that
+  // already references this listing (Order.listingId is a required FK)
+  // keeps working and keeps showing full transaction history, exactly as
+  // before, even after the seller "deletes" the listing. See deleteListing
+  // in src/app/actions.ts.
+  DELETED
 }
 
 // Explicit order-status pipeline per spec:
@@ -70,7 +76,17 @@ model User {
   phone          String   @unique
   email          String?  @unique
   passwordHash   String
+  // DEPRECATED — replaced by the 5-star rating system below (ratingSum /
+  // ratingCount + the Rating model). Column kept (not dropped) so no data
+  // migration is required; nothing in the UI reads or writes it anymore.
   reputationScore Int     @default(100)
+  // Denormalized rating counters, updated transactionally in
+  // src/app/actions.ts#submitRating whenever a new Rating row is created
+  // for this user (as the ratee). Average = ratingSum / ratingCount.
+  // Kept denormalized (rather than aggregating Rating rows on every
+  // dashboard render) the same way reputationScore was.
+  ratingSum      Int      @default(0)
+  ratingCount    Int      @default(0)
   municipality   String?
   createdAt      DateTime @default(now())
 
@@ -82,6 +98,8 @@ model User {
   sellerOrders   Order[]        @relation("SellerOrders")
   haulerRoutes   PooledRoute[]  @relation("HaulerRoutes")
   reputationEvents ReputationEvent[]
+  ratingsGiven     Rating[]     @relation("RatingsGiven")
+  ratingsReceived  Rating[]     @relation("RatingsReceived")
 }
 
 model Cooperative {
@@ -142,6 +160,7 @@ model Order {
 
   proofOfDelivery  ProofOfDelivery?
   reputationEvents ReputationEvent[]
+  ratings          Rating[]
 
   // --- Commission & fee engine snapshot (Feature: Configurable Commission
   // & Fee Engine). Computed once at order-creation time from whichever
@@ -225,6 +244,28 @@ model ReputationEvent {
   delta   Int
   note    String?
   createdAt DateTime @default(now())
+}
+
+// Feature: 5-star rating system, replacing the old points-based
+// reputationScore. Ratings are only ever created for a SETTLED order (see
+// submitRating in src/app/actions.ts, which enforces this and that both
+// rater and ratee were actual participants on that order — buyer, seller,
+// or the assigned hauler) so ratings can't be faked. The @@unique
+// constraint stops one person rating the same counterparty on the same
+// order more than once, from either the client or a retried request.
+model Rating {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  raterId   String
+  rater     User     @relation("RatingsGiven", fields: [raterId], references: [id])
+  rateeId   String
+  ratee     User     @relation("RatingsReceived", fields: [rateeId], references: [id])
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@unique([orderId, raterId, rateeId])
 }
 
 // Seeded with mock historical data; powers the moving-average pricing heuristic

@@ -5,9 +5,11 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PhotoUpload } from "@/components/ui/photo-upload";
+import { StarRatingDisplay } from "@/components/ui/star-rating";
 import { ListingPricePreview } from "@/components/listing-price-preview";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
-import { createListing } from "@/app/actions";
+import { createListing, deleteListing } from "@/app/actions";
+import { DeleteListingButton } from "@/components/ui/delete-listing-button";
 import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/lib/commission";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
 import Link from "next/link";
@@ -31,8 +33,9 @@ export default async function SellerDashboard() {
   const [me, listings, orders, activeCommissionConfigs] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.listing.findMany({
-      where: { sellerId: userId },
+      where: { sellerId: userId, status: { not: "DELETED" } },
       orderBy: { createdAt: "desc" },
+      include: { orders: { select: { status: true } } },
     }),
     prisma.order.findMany({
       where: { sellerId: userId },
@@ -83,8 +86,10 @@ export default async function SellerDashboard() {
         <Card className="overflow-hidden">
           <div className="h-1.5 bg-gradient-to-r from-brand-green-500 via-brand-gold-400 to-brand-gold-700" />
           <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">Reputation score</p>
-            <p className="mt-1 text-2xl font-bold text-neutral-900">{me.reputationScore}</p>
+            <p className="text-sm text-neutral-500">Your rating</p>
+            <p className="mt-1">
+              <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} size="lg" />
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -149,33 +154,46 @@ export default async function SellerDashboard() {
               {listings.length === 0 && (
                 <p className="text-sm text-neutral-500">No listings yet.</p>
               )}
-              {listings.map((l) => (
-                <div
-                  key={l.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3"
-                >
-                  <div className="flex items-center gap-3">
-                    {resolvePhotoUrl(l.photoBlobKey) && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={resolvePhotoUrl(l.photoBlobKey)!}
-                        alt={l.cropType}
-                        className="h-12 w-12 rounded-md object-cover"
+              {listings.map((l) => {
+                const hasActiveOrder = l.orders.some((o) => o.status !== "SETTLED");
+                return (
+                  <div
+                    key={l.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      {resolvePhotoUrl(l.photoBlobKey) && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={resolvePhotoUrl(l.photoBlobKey)!}
+                          alt={l.cropType}
+                          className="h-12 w-12 rounded-md object-cover"
+                        />
+                      )}
+                      <div>
+                        <p className="font-medium text-neutral-900">
+                          {l.cropType} {l.variety ? `— ${l.variety}` : ""} · {l.volumeKg} kg
+                        </p>
+                        <p className="text-sm text-neutral-500">
+                          Asking {formatPeso(l.askingPricePerKg)}/kg · AI suggested{" "}
+                          {formatPeso(l.aiSuggestedPricePerKg)}/kg · {l.municipality}
+                        </p>
+                        {hasActiveOrder && (
+                          <p className="text-xs text-brand-gold-700">Has an active order — can&apos;t delete</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={l.status === "ACTIVE" ? "green" : "gray"}>{l.status}</Badge>
+                      <DeleteListingButton
+                        listingId={l.id}
+                        action={deleteListing}
+                        disabled={hasActiveOrder}
                       />
-                    )}
-                    <div>
-                      <p className="font-medium text-neutral-900">
-                        {l.cropType} {l.variety ? `— ${l.variety}` : ""} · {l.volumeKg} kg
-                      </p>
-                      <p className="text-sm text-neutral-500">
-                        Asking {formatPeso(l.askingPricePerKg)}/kg · AI suggested{" "}
-                        {formatPeso(l.aiSuggestedPricePerKg)}/kg · {l.municipality}
-                      </p>
                     </div>
                   </div>
-                  <Badge tone={l.status === "ACTIVE" ? "green" : "gray"}>{l.status}</Badge>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 
