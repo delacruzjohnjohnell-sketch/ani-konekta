@@ -259,7 +259,17 @@ export async function bulkMatchOrder(formData: FormData) {
 
 // ---------------------------------------------------------------------------
 // HAULER: accept an escrowed order and pool it into a route (municipality-
-// level grouping heuristic — see src/lib/routing.ts)
+// level grouping heuristic — see src/lib/routing.ts).
+//
+// dropoffPoint is the buyer's real municipality (not a placeholder string)
+// so the Hauler Dashboard's municipality filter can actually match a
+// route's delivery location, not just its pickup location.
+//
+// If this hauler already has an ASSIGNED (not-yet-picked-up) route running
+// the same pickup -> dropoff municipality corridor, the order joins that
+// route instead of always creating a new one-order route — this is the
+// real "which pickups can be grouped into the same route" grouping, not
+// just a cosmetic list grouping.
 // ---------------------------------------------------------------------------
 export async function acceptAndPoolOrder(formData: FormData) {
   const user = await requireUser("HAULER");
@@ -267,26 +277,48 @@ export async function acceptAndPoolOrder(formData: FormData) {
 
   const order = await prisma.order.findUniqueOrThrow({
     where: { id: orderId },
-    include: { listing: true },
+    include: { listing: true, buyer: true },
   });
   if (order.status !== "ORDERED_ESCROWED") {
     throw new Error("Order is not ready for pooling.");
   }
 
-  const [pooled] = poolOrdersByMunicipality([
-    { id: order.id, municipality: order.listing.municipality },
-  ]);
+  const pickupMunicipality = order.listing.municipality;
+  const dropoffMunicipality = order.buyer.municipality?.trim() || "Buyer facility (TBD)";
 
-  const route = await prisma.pooledRoute.create({
-    data: {
+  const joinableRoute = await prisma.pooledRoute.findFirst({
+    where: {
       haulerId: user.id,
-      pickupPoints: [order.listing.municipality],
-      dropoffPoint: "Buyer facility (TBD)",
       status: "ASSIGNED",
-      etaMinutes: pooled.estimatedEtaMinutes,
-      distanceKm: pooled.estimatedDistanceKm,
+      dropoffPoint: dropoffMunicipality,
+      pickupPoints: { has: pickupMunicipality },
     },
+    orderBy: { createdAt: "desc" },
   });
+
+  const route = joinableRoute
+    ? await prisma.pooledRoute.update({
+        where: { id: joinableRoute.id },
+        data: {
+          // Rough re-estimate for one more stop on an already-pooled trip
+          // (same placeholder-heuristic spirit as poolOrdersByMunicipality
+          // — see src/lib/routing.ts; real routing is Phase 2, ROADMAP.md).
+          etaMinutes: (joinableRoute.etaMinutes ?? 45) + 10,
+        },
+      })
+    : await prisma.pooledRoute.create({
+        data: (() => {
+          const [pooled] = poolOrdersByMunicipality([{ id: order.id, municipality: pickupMunicipality }]);
+          return {
+            haulerId: user.id,
+            pickupPoints: [pickupMunicipality],
+            dropoffPoint: dropoffMunicipality,
+            status: "ASSIGNED" as const,
+            etaMinutes: pooled.estimatedEtaMinutes,
+            distanceKm: pooled.estimatedDistanceKm,
+          };
+        })(),
+      });
 
   await prisma.order.update({
     where: { id: order.id },
