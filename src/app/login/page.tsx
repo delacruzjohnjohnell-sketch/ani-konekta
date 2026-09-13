@@ -8,11 +8,13 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n/client";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  const t = useT();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ function LoginForm() {
     });
     setLoading(false);
     if (res?.error) {
-      setError("Invalid phone/email or password.");
+      setError(t("auth.login.error"));
       return;
     }
     router.push(callbackUrl);
@@ -39,13 +41,13 @@ function LoginForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Log in</CardTitle>
-        <CardDescription>Use your phone number or email.</CardDescription>
+        <CardTitle>{t("auth.login.title")}</CardTitle>
+        <CardDescription>{t("auth.login.subtitle")}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="identifier">Phone or email</Label>
+            <Label htmlFor="identifier">{t("auth.login.identifier")}</Label>
             <Input
               id="identifier"
               value={identifier}
@@ -55,7 +57,7 @@ function LoginForm() {
             />
           </div>
           <div>
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t("auth.login.password")}</Label>
             <Input
               id="password"
               type="password"
@@ -66,13 +68,13 @@ function LoginForm() {
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Logging in…" : "Log in"}
+            {loading ? t("auth.login.submitting") : t("auth.login.submit")}
           </Button>
         </form>
         <p className="mt-4 text-center text-sm text-neutral-500">
-          No account?{" "}
+          {t("auth.login.noAccount")}{" "}
           <Link href="/register" className="font-medium text-brand-green-700">
-            Sign up
+            {t("auth.login.signUp")}
           </Link>
         </p>
       </CardContent>
@@ -81,12 +83,13 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
+  const t = useT();
   return (
     <div className="harvest-hero flex min-h-[calc(100vh-4rem)] flex-col justify-center px-4 py-16">
       <div className="mx-auto w-full max-w-md">
         <div className="mb-6 flex flex-col items-center gap-2">
           <Image src="/logo.png" alt="ANI-KONEKTA" width={64} height={55} className="h-14 w-auto" priority />
-          <p className="text-sm font-medium text-brand-green-800">Welcome back to ANI-KONEKTA</p>
+          <p className="text-sm font-medium text-brand-green-800">{t("auth.welcomeBack")}</p>
         </div>
         <Suspense fallback={null}>
           <LoginForm />

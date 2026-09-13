@@ -133,6 +133,13 @@ model Listing {
   photoBlobKey        String?       @map("photoUrl")
   createdAt           DateTime      @default(now())
 
+  // Optional seller-set floor on how small a single order/cart line can be
+  // against this listing. Null = no minimum (buyers may order any amount up
+  // to available volumeKg). See src/lib/listing-stock.ts.
+  minOrderQtyKg       Float?
+  // Optional free-text seller description shown on the buyer marketplace card.
+  description         String?
+
   orders              Order[]
 }
 

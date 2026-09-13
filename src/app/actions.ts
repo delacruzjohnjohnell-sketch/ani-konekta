@@ -8,8 +8,12 @@ import { suggestFairPrice } from "@/lib/pricing";
 import { paymentProvider } from "@/lib/payments";
 import { notifications } from "@/lib/notifications";
 import { poolOrdersByMunicipality } from "@/lib/routing";
-import { resolveCommissionForOrder } from "@/lib/commission";
 import { uploadPhoto, PhotoValidationError } from "@/lib/blob-storage";
+import { getLocale } from "@/lib/i18n/server";
+import { t } from "@/lib/i18n";
+import type { ActionState } from "@/components/ui/action-form";
+import { createEscrowedOrderForLines } from "@/lib/order-fulfillment";
+import { StockUnavailableError } from "@/lib/listing-stock";
 
 async function requireUser(role?: string) {
   const session = await auth();
@@ -20,8 +24,20 @@ async function requireUser(role?: string) {
 
 // ---------------------------------------------------------------------------
 // SELLER: create a listing (with AI-suggested price shown alongside it)
+//
+// Returns { error } instead of throwing on every validation/upload failure —
+// this is the fix for the "Post Listing" bug: a plain <form action={fn}>
+// with no useActionState has no way to catch a thrown Error, so it used to
+// crash the whole page to Next's generic error screen on ANY failure (a
+// missing field, an invalid photo, or BLOB_READ_WRITE_TOKEN not being set
+// locally). Pairs with <ActionForm> (src/components/ui/action-form.tsx),
+// which renders state.error inline and only resets the form on success.
 // ---------------------------------------------------------------------------
-export async function createListing(formData: FormData) {
+export async function createListing(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const locale = await getLocale();
   const user = await requireUser("SELLER");
 
   const cropType = String(formData.get("cropType") ?? "").trim();
@@ -31,24 +47,27 @@ export async function createListing(formData: FormData) {
   const askingPricePerKg = Number(formData.get("askingPricePerKg"));
   const qualityTag = String(formData.get("qualityTag") ?? "STANDARD");
   const municipality = String(formData.get("municipality") ?? "").trim();
+  const minOrderQtyKgRaw = String(formData.get("minOrderQtyKg") ?? "").trim();
+  const minOrderQtyKg = minOrderQtyKgRaw ? Number(minOrderQtyKgRaw) : null;
+  const description = String(formData.get("description") ?? "").trim() || null;
   const photoFile = formData.get("photo");
 
   if (!cropType || !municipality || !volumeKg || !askingPricePerKg) {
-    throw new Error("Missing required listing fields.");
+    return { error: t("seller.error.missingFields", locale) };
   }
 
   // A listing can never be published without a real photo attachment — no
   // pasted-URL fallback (Feature: direct file attachment, never a URL field).
   if (!(photoFile instanceof File) || photoFile.size === 0) {
-    throw new Error("A listing photo is required. Please attach a photo before posting.");
+    return { error: t("seller.error.photoRequired", locale) };
   }
 
   let photoBlobKey: string;
   try {
     photoBlobKey = await uploadPhoto(photoFile, "listings");
   } catch (err) {
-    if (err instanceof PhotoValidationError) throw err;
-    throw new Error(`Photo upload failed: ${err instanceof Error ? err.message : String(err)}`);
+    const reason = err instanceof Error ? err.message : String(err);
+    return { error: t("seller.error.photoUploadFailed", locale, { reason }) };
   }
 
   const aiSuggestedPricePerKg = await suggestFairPrice(
@@ -68,11 +87,81 @@ export async function createListing(formData: FormData) {
       aiSuggestedPricePerKg,
       qualityTag: qualityTag as never,
       municipality,
+      minOrderQtyKg,
+      description,
       photoBlobKey,
     },
   });
 
   revalidatePath("/seller/dashboard");
+  revalidatePath("/buyer/dashboard");
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// SELLER: edit their own listing. Same field set as createListing minus a
+// mandatory photo — re-uploading a photo is optional on edit; when omitted
+// the listing keeps its existing photoBlobKey. Scoped to sellerId so a
+// seller can never edit someone else's listing (checked, not just filtered).
+// ---------------------------------------------------------------------------
+export async function editListing(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const locale = await getLocale();
+  const user = await requireUser("SELLER");
+  const listingId = String(formData.get("listingId"));
+
+  const existing = await prisma.listing.findUnique({ where: { id: listingId } });
+  if (!existing || existing.sellerId !== user.id) {
+    return { error: t("seller.error.notFound", locale) };
+  }
+
+  const cropType = String(formData.get("cropType") ?? "").trim();
+  const variety = String(formData.get("variety") ?? "").trim() || null;
+  const volumeKg = Number(formData.get("volumeKg"));
+  const harvestDate = new Date(String(formData.get("harvestDate")));
+  const askingPricePerKg = Number(formData.get("askingPricePerKg"));
+  const qualityTag = String(formData.get("qualityTag") ?? "STANDARD");
+  const municipality = String(formData.get("municipality") ?? "").trim();
+  const minOrderQtyKgRaw = String(formData.get("minOrderQtyKg") ?? "").trim();
+  const minOrderQtyKg = minOrderQtyKgRaw ? Number(minOrderQtyKgRaw) : null;
+  const description = String(formData.get("description") ?? "").trim() || null;
+  const photoFile = formData.get("photo");
+
+  if (!cropType || !municipality || !volumeKg || !askingPricePerKg) {
+    return { error: t("seller.error.missingFields", locale) };
+  }
+
+  let photoBlobKey = existing.photoBlobKey;
+  if (photoFile instanceof File && photoFile.size > 0) {
+    try {
+      photoBlobKey = await uploadPhoto(photoFile, "listings");
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return { error: t("seller.error.photoUploadFailed", locale, { reason }) };
+    }
+  }
+
+  await prisma.listing.update({
+    where: { id: listingId },
+    data: {
+      cropType,
+      variety,
+      volumeKg,
+      harvestDate,
+      askingPricePerKg,
+      qualityTag: qualityTag as never,
+      municipality,
+      minOrderQtyKg,
+      description,
+      photoBlobKey,
+    },
+  });
+
+  revalidatePath("/seller/dashboard");
+  revalidatePath("/buyer/dashboard");
+  return { success: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -127,58 +216,20 @@ export async function placeOrder(formData: FormData) {
   });
   if (listing.status !== "ACTIVE") throw new Error("Listing is no longer available.");
 
-  const totalAmount = listing.volumeKg * listing.askingPricePerKg;
-
-  // Commission & fee engine: snapshot the applicable rates/amounts onto the
-  // order now, once, forever — see src/lib/commission.ts.
-  const commission = await resolveCommissionForOrder(
-    listing.cropType,
-    listing.volumeKg,
-    totalAmount
-  );
-
-  const order = await prisma.order.create({
-    data: {
-      listingId: listing.id,
-      buyerId: user.id,
-      sellerId: listing.sellerId,
-      volumeKg: listing.volumeKg,
-      agreedPricePerKg: listing.askingPricePerKg,
-      totalAmount,
-      status: "ORDERED_ESCROWED",
-      escrowStatus: "HELD",
-      commissionConfigId: commission.commissionConfigId,
-      appliedSellerCommissionRatePercent: commission.appliedSellerCommissionRatePercent,
-      appliedBuyerLogisticsFeePercent: commission.appliedBuyerLogisticsFeePercent,
-      appliedHaulerPayoutPercent: commission.appliedHaulerPayoutPercent,
-      sellerCommissionAmountPHP: commission.sellerCommissionAmountPHP,
-      logisticsFeeAmountPHP: commission.logisticsFeeAmountPHP,
-      haulerPayoutAmountPHP: commission.haulerPayoutAmountPHP,
-      platformNetRevenueAmountPHP: commission.platformNetRevenueAmountPHP,
-      netPayoutToSellerPHP: commission.netPayoutToSellerPHP,
-    },
-  });
-
-  await prisma.listing.update({
-    where: { id: listing.id },
-    data: { status: "CLOSED" },
-  });
-
-  // Buyer's escrow hold covers produce price + logistics fee together.
-  await paymentProvider.holdFunds({
-    orderId: order.id,
-    amount: commission.buyerGrandTotalPHP,
+  const order = await createEscrowedOrderForLines({
     buyerId: user.id,
+    sellerId: listing.sellerId,
+    lines: [
+      {
+        listingId: listing.id,
+        cropType: listing.cropType,
+        qtyKg: listing.volumeKg,
+        pricePerKg: listing.askingPricePerKg,
+      },
+    ],
+    isBulkMatch: false,
+    decrementStock: false, // whole-listing purchase — keeps existing hard-close behavior
   });
-
-  const seller = await prisma.user.findUnique({ where: { id: listing.sellerId } });
-  if (seller) {
-    await notifications.notifyOrderStatusChange({
-      phone: seller.phone,
-      orderId: order.id,
-      status: "ORDERED_ESCROWED (buyer payment held in escrow)",
-    });
-  }
 
   revalidatePath("/buyer/dashboard");
   redirect(`/buyer/order/${order.id}`);
@@ -210,51 +261,125 @@ export async function bulkMatchOrder(formData: FormData) {
   // members. Simplification noted for Phase 2 (multi-seller split orders).
   const primarySellerId = listings[0].sellerId;
 
-  const totalVolumeKg = listings.reduce((s, l) => s + l.volumeKg, 0);
-  const totalAmount = listings.reduce(
-    (s, l) => s + l.volumeKg * l.askingPricePerKg,
-    0
-  );
-  const agreedPricePerKg = totalAmount / totalVolumeKg;
-
-  const commission = await resolveCommissionForOrder(cropType, totalVolumeKg, totalAmount);
-
-  const order = await prisma.order.create({
-    data: {
-      listingId: listings[0].id,
-      buyerId: user.id,
-      sellerId: primarySellerId,
-      volumeKg: totalVolumeKg,
-      agreedPricePerKg,
-      totalAmount,
-      status: "ORDERED_ESCROWED",
-      escrowStatus: "HELD",
-      isBulkMatch: true,
-      commissionConfigId: commission.commissionConfigId,
-      appliedSellerCommissionRatePercent: commission.appliedSellerCommissionRatePercent,
-      appliedBuyerLogisticsFeePercent: commission.appliedBuyerLogisticsFeePercent,
-      appliedHaulerPayoutPercent: commission.appliedHaulerPayoutPercent,
-      sellerCommissionAmountPHP: commission.sellerCommissionAmountPHP,
-      logisticsFeeAmountPHP: commission.logisticsFeeAmountPHP,
-      haulerPayoutAmountPHP: commission.haulerPayoutAmountPHP,
-      platformNetRevenueAmountPHP: commission.platformNetRevenueAmountPHP,
-      netPayoutToSellerPHP: commission.netPayoutToSellerPHP,
-    },
-  });
-
-  await prisma.listing.updateMany({
-    where: { id: { in: listingIds } },
-    data: { status: "CLOSED" },
-  });
-
-  await paymentProvider.holdFunds({
-    orderId: order.id,
-    amount: commission.buyerGrandTotalPHP,
+  const order = await createEscrowedOrderForLines({
     buyerId: user.id,
+    sellerId: primarySellerId,
+    lines: listings.map((l) => ({
+      listingId: l.id,
+      cropType: l.cropType,
+      qtyKg: l.volumeKg,
+      pricePerKg: l.askingPricePerKg,
+    })),
+    isBulkMatch: true,
+    decrementStock: false, // whole-listing purchase — keeps existing hard-close behavior
   });
 
   revalidatePath("/buyer/dashboard");
   redirect(`/buyer/order/${order.id}`);
+}
+
+// ---------------------------------------------------------------------------
+// BUYER: checkout the cart (Feature: shopping cart with buyer-chosen kg
+// quantities). The cart itself is client-only state (localStorage) — this
+// action is the single server round-trip that turns it into real escrowed
+// orders, and it NEVER trusts the client's copy of price/stock/minimum: every
+// line is re-fetched and re-validated against the live Listing row.
+//
+// A cart can span multiple sellers, but Order.listingId/sellerId model one
+// seller per Order (same constraint bulkMatchOrder already works within) —
+// so this groups cart lines by seller and creates one Order per seller
+// group, using partial-quantity stock decrement (decrementStock: true)
+// instead of the whole-listing hard-close placeOrder/bulkMatchOrder use,
+// since a cart line is very often less than a listing's full volumeKg.
+// ---------------------------------------------------------------------------
+export type CheckoutCartLine = { listingId: string; qtyKg: number };
+export type CheckoutCartState =
+  | { error?: string; success?: boolean; orderIds?: string[] }
+  | null;
+
+export async function checkoutCart(
+  _prevState: CheckoutCartState,
+  formData: FormData
+): Promise<CheckoutCartState> {
+  const locale = await getLocale();
+  const user = await requireUser("BUYER");
+  const cartJson = String(formData.get("cartJson") ?? "[]");
+
+  let requestedLines: CheckoutCartLine[];
+  try {
+    requestedLines = JSON.parse(cartJson);
+  } catch {
+    return { error: t("common.error", locale) };
+  }
+  if (!Array.isArray(requestedLines) || requestedLines.length === 0) {
+    return { error: t("cart.empty", locale) };
+  }
+
+  const listingIds = requestedLines.map((l) => l.listingId);
+  const listings = await prisma.listing.findMany({ where: { id: { in: listingIds } } });
+  const listingById = new Map(listings.map((l) => [l.id, l]));
+
+  // Re-validate every line server-side — the client cart is never trusted
+  // for price, stock, or minimum-order enforcement.
+  for (const line of requestedLines) {
+    const listing = listingById.get(line.listingId);
+    if (!listing || listing.status !== "ACTIVE") {
+      return { error: t("buyer.error.listingUnavailable", locale) };
+    }
+    if (line.qtyKg <= 0) {
+      return { error: t("cart.errorInvalidQty", locale) };
+    }
+    if (listing.minOrderQtyKg != null && line.qtyKg < listing.minOrderQtyKg) {
+      return {
+        error: t("cart.errorBelowMinimum", locale, { min: listing.minOrderQtyKg }),
+      };
+    }
+    if (line.qtyKg > listing.volumeKg) {
+      return {
+        error: t("cart.errorAboveStock", locale, { available: listing.volumeKg }),
+      };
+    }
+  }
+
+  // Group by seller — Order.sellerId is single, so a multi-seller cart
+  // becomes one Order per seller (same convention as bulkMatchOrder).
+  const bySeller = new Map<string, typeof requestedLines>();
+  for (const line of requestedLines) {
+    const listing = listingById.get(line.listingId)!;
+    const key = listing.sellerId;
+    if (!bySeller.has(key)) bySeller.set(key, []);
+    bySeller.get(key)!.push(line);
+  }
+
+  const orderIds: string[] = [];
+  try {
+    for (const [sellerId, lines] of bySeller) {
+      const order = await createEscrowedOrderForLines({
+        buyerId: user.id,
+        sellerId,
+        lines: lines.map((l) => {
+          const listing = listingById.get(l.listingId)!;
+          return {
+            listingId: listing.id,
+            cropType: listing.cropType,
+            qtyKg: l.qtyKg,
+            pricePerKg: listing.askingPricePerKg,
+          };
+        }),
+        isBulkMatch: lines.length > 1,
+        decrementStock: true, // partial-quantity purchase
+      });
+      orderIds.push(order.id);
+    }
+  } catch (err) {
+    if (err instanceof StockUnavailableError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
+
+  revalidatePath("/buyer/dashboard");
+  redirect(`/buyer/checkout/success?orders=${orderIds.join(",")}`);
 }
 
 // ---------------------------------------------------------------------------

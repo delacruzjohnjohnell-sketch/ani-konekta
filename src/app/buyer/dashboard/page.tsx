@@ -5,10 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
-import { placeOrder, bulkMatchOrder } from "@/app/actions";
+import { formatPeso } from "@/lib/utils";
+import { bulkMatchOrder } from "@/app/actions";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
 import { StarRatingDisplay } from "@/components/ui/star-rating";
+import { ListingCard, type ListingCardData } from "@/components/buyer/listing-card";
+import { computeSellerBadges } from "@/lib/seller-badges";
+import { getLocale } from "@/lib/i18n/server";
+import { t } from "@/lib/i18n";
 
 const MUNICIPALITIES = [
   "Cabanatuan City",
@@ -22,16 +26,45 @@ const MUNICIPALITIES = [
   "Zaragoza",
 ];
 
+const CATEGORIES = [
+  { key: "all", labelKey: "buyer.category.all", match: () => true },
+  { key: "rice", labelKey: "buyer.category.rice", match: (crop: string) => /rice|palay/i.test(crop) },
+  { key: "vegetables", labelKey: "buyer.category.vegetables", match: (crop: string) => /onion|tomato|cabbage|pepper|eggplant|carrot|repolyo|kamatis/i.test(crop) },
+  { key: "fruits", labelKey: "buyer.category.fruits", match: (crop: string) => /mango|banana|calamansi|papaya|watermelon/i.test(crop) },
+  { key: "leafy", labelKey: "buyer.category.leafy", match: (crop: string) => /lettuce|spinach|kangkong|pechay|malunggay/i.test(crop) },
+  { key: "rootCrops", labelKey: "buyer.category.rootCrops", match: (crop: string) => /potato|sweet potato|cassava|ube|gabi|camote/i.test(crop) },
+  { key: "herbs", labelKey: "buyer.category.herbs", match: (crop: string) => /basil|ginger|lemongrass|tanglad|luya/i.test(crop) },
+] as const;
+
+const SORTS = [
+  { key: "recommended", labelKey: "buyer.sort.recommended" },
+  { key: "priceLowHigh", labelKey: "buyer.sort.priceLowHigh" },
+  { key: "newest", labelKey: "buyer.sort.newest" },
+  { key: "highestRated", labelKey: "buyer.sort.highestRated" },
+  { key: "mostSold", labelKey: "buyer.sort.mostSold" },
+] as const;
+
 export default async function BuyerDashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ crop?: string; municipality?: string; quality?: string; maxPrice?: string }>;
+  searchParams: Promise<{
+    crop?: string;
+    municipality?: string;
+    quality?: string;
+    maxPrice?: string;
+    sellerName?: string;
+    category?: string;
+    sort?: string;
+  }>;
 }) {
   const session = await auth();
   const userId = session!.user.id;
   const params = await searchParams;
+  const locale = await getLocale();
+  const category = params.category ?? "all";
+  const sort = params.sort ?? "recommended";
 
-  const [me, listings, orders, priceTrends] = await Promise.all([
+  const [me, listingsRaw, orders, priceTrends] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.listing.findMany({
       where: {
@@ -40,13 +73,16 @@ export default async function BuyerDashboard({
         ...(params.municipality ? { municipality: params.municipality } : {}),
         ...(params.quality ? { qualityTag: params.quality as never } : {}),
         ...(params.maxPrice ? { askingPricePerKg: { lte: Number(params.maxPrice) } } : {}),
+        ...(params.sellerName
+          ? { seller: { name: { contains: params.sellerName, mode: "insensitive" } } }
+          : {}),
       },
       include: { seller: true },
       orderBy: { createdAt: "desc" },
     }),
     prisma.order.findMany({
       where: { buyerId: userId },
-      include: { listing: true, seller: true },
+      include: { listing: true, seller: true, route: true },
       orderBy: { createdAt: "desc" },
     }),
     prisma.priceTrend.findMany({
@@ -55,33 +91,126 @@ export default async function BuyerDashboard({
     }),
   ]);
 
+  const categoryDef = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0];
+  const filteredByCategory = listingsRaw.filter((l) => categoryDef.match(l.cropType));
+
+  const sellerIds = [...new Set(filteredByCategory.map((l) => l.sellerId))];
+  const sellerStats = await computeSellerBadges(sellerIds);
+  // "Most Sold" has no literal per-listing sales counter (a listing depletes
+  // rather than accumulating sales) — defined as the seller's total
+  // completed-order count, the same number used for badges.
+  const soldCountBySeller = new Map(
+    [...sellerStats.entries()].map(([id, s]) => [id, s.completedOrders])
+  );
+
+  const sorted = [...filteredByCategory].sort((a, b) => {
+    switch (sort) {
+      case "priceLowHigh":
+        return a.askingPricePerKg - b.askingPricePerKg;
+      case "newest":
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      case "highestRated":
+        return (
+          (sellerStats.get(b.sellerId)?.avgRating ?? 0) -
+          (sellerStats.get(a.sellerId)?.avgRating ?? 0)
+        );
+      case "mostSold":
+        return (soldCountBySeller.get(b.sellerId) ?? 0) - (soldCountBySeller.get(a.sellerId) ?? 0);
+      case "recommended":
+      default: {
+        const aScore = sellerStats.get(a.sellerId)?.badges.length ?? 0;
+        const bScore = sellerStats.get(b.sellerId)?.badges.length ?? 0;
+        return bScore - aScore;
+      }
+    }
+  });
+
+  function toCardData(l: (typeof sorted)[number], featuredLabel?: ListingCardData["featuredLabel"]): ListingCardData {
+    const stats = sellerStats.get(l.sellerId);
+    return {
+      id: l.id,
+      cropType: l.cropType,
+      variety: l.variety,
+      volumeKg: l.volumeKg,
+      askingPricePerKg: l.askingPricePerKg,
+      qualityTag: l.qualityTag,
+      municipality: l.municipality,
+      photoUrl: resolvePhotoUrl(l.photoBlobKey),
+      minOrderQtyKg: l.minOrderQtyKg,
+      sellerId: l.sellerId,
+      sellerName: l.seller.name,
+      sellerRatingSum: l.seller.ratingSum,
+      sellerRatingCount: l.seller.ratingCount,
+      badges: stats?.badges ?? [],
+      featuredLabel,
+      bulkMatchFormId: sorted.length >= 2 ? "bulk-match-form" : undefined,
+    };
+  }
+
+  // Featured Harvests: up to 4 derived picks (highest-rated seller / lowest
+  // price-per-kg for its crop / most recent harvest / most seller sales) —
+  // deduplicated so the same listing doesn't appear twice.
+  const featured: { listing: (typeof sorted)[number]; label: ListingCardData["featuredLabel"] }[] = [];
+  const usedIds = new Set<string>();
+  function pickFeatured(
+    label: NonNullable<ListingCardData["featuredLabel"]>,
+    compare: (a: (typeof sorted)[number], b: (typeof sorted)[number]) => number
+  ) {
+    const candidate = [...sorted].filter((l) => !usedIds.has(l.id)).sort(compare)[0];
+    if (candidate) {
+      featured.push({ listing: candidate, label });
+      usedIds.add(candidate.id);
+    }
+  }
+  pickFeatured("recommended", (a, b) => (sellerStats.get(b.sellerId)?.avgRating ?? 0) - (sellerStats.get(a.sellerId)?.avgRating ?? 0));
+  pickFeatured("bestValue", (a, b) => a.askingPricePerKg - b.askingPricePerKg);
+  pickFeatured("freshHarvest", (a, b) => b.harvestDate.getTime() - a.harvestDate.getTime());
+  pickFeatured("popular", (a, b) => (soldCountBySeller.get(b.sellerId) ?? 0) - (soldCountBySeller.get(a.sellerId) ?? 0));
+
   return (
-    <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
+    <div className="mx-auto max-w-7xl space-y-8 px-4 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Buyer dashboard</h1>
-          <p className="text-neutral-600">Browse listings, place orders, track delivery.</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("buyer.title", locale)}</h1>
+          <p className="text-neutral-600">{t("buyer.subtitle", locale)}</p>
         </div>
         <div className="text-right">
-          <p className="text-sm text-neutral-500">Your rating</p>
+          <p className="text-sm text-neutral-500">{t("seller.yourRating", locale)}</p>
           <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
         </div>
       </div>
 
+      {featured.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-lg font-bold text-neutral-900">{t("buyer.featured.title", locale)}</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {featured.map(({ listing, label }) => (
+              <ListingCard key={listing.id} listing={toCardData(listing, label)} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Browse listings</CardTitle>
+          <CardTitle>{t("buyer.browseListings", locale)}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4" method="get">
+          <form className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5" method="get">
+            <input type="hidden" name="category" value={category} />
+            <input type="hidden" name="sort" value={sort} />
             <div>
-              <Label htmlFor="crop">Crop</Label>
+              <Label htmlFor="crop">{t("buyer.filter.crop", locale)}</Label>
               <Input id="crop" name="crop" defaultValue={params.crop} placeholder="Palay" />
             </div>
             <div>
-              <Label htmlFor="municipality">Municipality</Label>
+              <Label htmlFor="sellerName">{t("buyer.filter.sellerName", locale)}</Label>
+              <Input id="sellerName" name="sellerName" defaultValue={params.sellerName} />
+            </div>
+            <div>
+              <Label htmlFor="municipality">{t("common.municipality", locale)}</Label>
               <Select id="municipality" name="municipality" defaultValue={params.municipality ?? ""}>
-                <option value="">Any</option>
+                <option value="">{t("common.any", locale)}</option>
                 {MUNICIPALITIES.map((m) => (
                   <option key={m} value={m}>
                     {m}
@@ -90,99 +219,98 @@ export default async function BuyerDashboard({
               </Select>
             </div>
             <div>
-              <Label htmlFor="quality">Quality tag</Label>
+              <Label htmlFor="quality">{t("buyer.filter.qualityTag", locale)}</Label>
               <Select id="quality" name="quality" defaultValue={params.quality ?? ""}>
-                <option value="">Any</option>
-                <option value="STANDARD">Standard</option>
-                <option value="GRADE_A">Grade A</option>
-                <option value="ORGANIC">Organic</option>
-                <option value="GAP_CERTIFIED">GAP-certified</option>
+                <option value="">{t("common.any", locale)}</option>
+                <option value="STANDARD">{t("quality.STANDARD", locale)}</option>
+                <option value="GRADE_A">{t("quality.GRADE_A", locale)}</option>
+                <option value="ORGANIC">{t("quality.ORGANIC", locale)}</option>
+                <option value="GAP_CERTIFIED">{t("quality.GAP_CERTIFIED", locale)}</option>
               </Select>
             </div>
             <div>
-              <Label htmlFor="maxPrice">Max ₱/kg</Label>
+              <Label htmlFor="maxPrice">{t("buyer.filter.maxPrice", locale)}</Label>
               <Input id="maxPrice" name="maxPrice" type="number" defaultValue={params.maxPrice} />
             </div>
-            <div className="col-span-2 sm:col-span-4">
+            <div className="col-span-2 sm:col-span-5">
               <Button type="submit" variant="outline">
-                Apply filters
+                {t("buyer.filter.apply", locale)}
               </Button>
             </div>
           </form>
 
-          {/* NOTE: these must NOT be nested <form> elements — a <form> inside
-              another <form> is invalid HTML. Browsers silently reparent the
-              inner form out of the outer one, which doesn't match what React
-              rendered server-side and causes a hydration mismatch (React
-              error #418) that leaves the buttons inert (clicks fire no
-              request at all). Each listing's "Order this" is its own
-              standalone form; the bulk-match checkboxes live outside any
-              form and are associated with the bulk-match form purely via
-              the HTML5 form="..." attribute. */}
-          <div className="space-y-3">
-            {listings.length === 0 && (
-              <p className="text-sm text-neutral-500">No listings match your filters.</p>
-            )}
-            {listings.map((l) => (
-              <div
-                key={l.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-black/10 p-3"
+          <div className="mb-4 flex flex-wrap gap-2">
+            {CATEGORIES.map((c) => (
+              <Link
+                key={c.key}
+                href={{
+                  pathname: "/buyer/dashboard",
+                  query: { ...params, category: c.key },
+                }}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  category === c.key
+                    ? "border-brand-green-700 bg-brand-green-700 text-white"
+                    : "border-black/15 bg-white text-neutral-700 hover:border-brand-green-700"
+                }`}
               >
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    name="listingIds"
-                    value={l.id}
-                    form="bulk-match-form"
-                    className="h-4 w-4"
-                  />
-                  {resolvePhotoUrl(l.photoBlobKey) && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={resolvePhotoUrl(l.photoBlobKey)!}
-                      alt={l.cropType}
-                      className="h-14 w-14 rounded-md object-cover"
-                    />
-                  )}
-                  <div>
-                    <p className="font-medium text-neutral-900">
-                      {l.cropType} {l.variety ? `— ${l.variety}` : ""} · {l.volumeKg} kg
-                    </p>
-                    <p className="text-sm text-neutral-500">
-                      {formatPeso(l.askingPricePerKg)}/kg · {l.municipality} · seller{" "}
-                      {l.seller.name} ·{" "}
-                      <Badge tone="gold" className="ml-1">
-                        {l.qualityTag}
-                      </Badge>
-                    </p>
-                  </div>
-                </label>
-                <form action={placeOrder}>
-                  <input type="hidden" name="listingId" value={l.id} />
-                  <Button type="submit" size="sm">
-                    Order this ({formatPeso(l.volumeKg * l.askingPricePerKg)} + logistics fee)
-                  </Button>
-                </form>
-              </div>
+                {t(c.labelKey, locale)}
+              </Link>
             ))}
-            {listings.length >= 2 && (
-              <form id="bulk-match-form" action={bulkMatchOrder}>
-                <Button type="submit" variant="secondary">
-                  Bulk-match selected listings into one order
-                </Button>
-              </form>
-            )}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Label className="mb-0 whitespace-nowrap">{t("buyer.sort.label", locale)}</Label>
+              {SORTS.map((s) => (
+                <Link
+                  key={s.key}
+                  href={{
+                    pathname: "/buyer/dashboard",
+                    query: { ...params, category, sort: s.key },
+                  }}
+                  className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    sort === s.key
+                      ? "border-brand-gold-500 bg-brand-gold-500 text-white"
+                      : "border-black/15 bg-white text-neutral-600 hover:border-brand-gold-500"
+                  }`}
+                >
+                  {t(s.labelKey, locale)}
+                </Link>
+              ))}
+            </div>
           </div>
+
+          {/* NOTE: these must NOT be nested <form> elements — a <form> inside
+              another <form> is invalid HTML and causes a React hydration
+              mismatch that leaves buttons inert. Each ListingCard's "Buy
+              Now" is its own standalone form; "Add to Cart" is a plain
+              onClick (no form at all — see cart-context.tsx); the
+              bulk-match checkboxes live outside any form and associate
+              with the bulk-match form purely via the HTML5 form="..."
+              attribute. */}
+          {sorted.length === 0 ? (
+            <p className="text-sm text-neutral-500">{t("buyer.listing.noListings", locale)}</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {sorted.map((l) => (
+                <ListingCard key={l.id} listing={toCardData(l)} />
+              ))}
+            </div>
+          )}
+          {sorted.length >= 2 && (
+            <form id="bulk-match-form" action={bulkMatchOrder} className="mt-4">
+              <Button type="submit" variant="secondary">
+                {t("buyer.bulkMatch", locale)}
+              </Button>
+            </form>
+          )}
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>My orders</CardTitle>
+            <CardTitle>{t("buyer.myOrders", locale)}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {orders.length === 0 && <p className="text-sm text-neutral-500">No orders yet.</p>}
+            {orders.length === 0 && <p className="text-sm text-neutral-500">{t("buyer.noOrdersYet", locale)}</p>}
             {orders.map((o) => (
               <Link
                 key={o.id}
@@ -191,14 +319,22 @@ export default async function BuyerDashboard({
               >
                 <div>
                   <p className="font-medium text-neutral-900">
-                    {o.listing.cropType} · {o.volumeKg} kg · from {o.seller.name}
+                    {o.listing.cropType} · {o.volumeKg} kg · {t("buyer.listing.seller", locale)} {o.seller.name}
                   </p>
-                  <p className="text-sm text-neutral-500">
-                    {formatPeso(o.totalAmount)} · escrow {o.escrowStatus}
-                  </p>
+                  <p className="text-sm text-neutral-500">{formatPeso(o.totalAmount)}</p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    <Badge tone={o.escrowStatus === "RELEASED" ? "green" : "gold"} className="text-[10px]">
+                      {t("buyer.order.escrowStatus", locale)}: {t(`escrow.${o.escrowStatus}`, locale)}
+                    </Badge>
+                    {o.route && (
+                      <Badge tone="blue" className="text-[10px]">
+                        {t("buyer.order.logisticsStatus", locale)}: {t(`route.status.${o.route.status}`, locale)}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <Badge tone={o.status === "SETTLED" ? "green" : "gold"}>
-                  {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                  {t(`order.status.${o.status}`, locale)}
                 </Badge>
               </Link>
             ))}
@@ -207,19 +343,19 @@ export default async function BuyerDashboard({
 
         <Card>
           <CardHeader>
-            <CardTitle>Price trend</CardTitle>
+            <CardTitle>{t("buyer.priceTrend", locale)}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {priceTrends.length === 0 && (
               <p className="text-sm text-neutral-500">No price history yet.</p>
             )}
-            {priceTrends.map((t) => (
-              <div key={t.id} className="flex items-center justify-between text-sm">
+            {priceTrends.map((pt) => (
+              <div key={pt.id} className="flex items-center justify-between text-sm">
                 <span className="text-neutral-600">
-                  {t.cropType} · {t.municipality}
+                  {pt.cropType} · {pt.municipality}
                 </span>
                 <span className="font-medium text-neutral-900">
-                  {formatPeso(t.avgPricePerKg)}/kg
+                  {formatPeso(pt.avgPricePerKg)}/kg
                 </span>
               </div>
             ))}

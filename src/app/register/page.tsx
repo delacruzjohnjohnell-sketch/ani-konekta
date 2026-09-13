@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n/client";
 
 const NUEVA_ECIJA_MUNICIPALITIES = [
   "Cabanatuan City",
@@ -24,6 +25,7 @@ const NUEVA_ECIJA_MUNICIPALITIES = [
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const t = useT();
   const [role, setRole] = useState(searchParams.get("role") || "SELLER");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -46,7 +48,7 @@ function RegisterForm() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body.error ?? "Something went wrong.");
+      setError(body.error ?? t("auth.register.error"));
       setLoading(false);
       return;
     }
@@ -68,28 +70,25 @@ function RegisterForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create your account</CardTitle>
-        <CardDescription>
-          Sellers list produce for sale, Buyers browse and order, Haulers run pooled
-          delivery routes.
-        </CardDescription>
+        <CardTitle>{t("auth.register.title")}</CardTitle>
+        <CardDescription>{t("auth.register.subtitle")}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="role">I am a…</Label>
+            <Label htmlFor="role">{t("auth.register.role")}</Label>
             <Select id="role" value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="SELLER">Seller (Farmer / Cooperative)</option>
-              <option value="BUYER">Buyer (Retailer / Wholesaler / Institutional)</option>
-              <option value="HAULER">Hauler (Verified Partner Trucker)</option>
+              <option value="SELLER">{t("auth.register.role.seller")}</option>
+              <option value="BUYER">{t("auth.register.role.buyer")}</option>
+              <option value="HAULER">{t("auth.register.role.hauler")}</option>
             </Select>
           </div>
           <div>
-            <Label htmlFor="name">Full name</Label>
+            <Label htmlFor="name">{t("auth.register.name")}</Label>
             <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
           <div>
-            <Label htmlFor="phone">Phone number</Label>
+            <Label htmlFor="phone">{t("auth.register.phone")}</Label>
             <Input
               id="phone"
               value={phone}
@@ -99,7 +98,7 @@ function RegisterForm() {
             />
           </div>
           <div>
-            <Label htmlFor="email">Email (optional)</Label>
+            <Label htmlFor="email">{t("auth.register.email")}</Label>
             <Input
               id="email"
               type="email"
@@ -108,7 +107,7 @@ function RegisterForm() {
             />
           </div>
           <div>
-            <Label htmlFor="municipality">Municipality</Label>
+            <Label htmlFor="municipality">{t("auth.register.municipality")}</Label>
             <Select
               id="municipality"
               value={municipality}
@@ -122,7 +121,7 @@ function RegisterForm() {
             </Select>
           </div>
           <div>
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t("auth.register.password")}</Label>
             <Input
               id="password"
               type="password"
@@ -134,13 +133,13 @@ function RegisterForm() {
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Creating account…" : "Sign up"}
+            {loading ? t("auth.register.submitting") : t("auth.register.submit")}
           </Button>
         </form>
         <p className="mt-4 text-center text-sm text-neutral-500">
-          Already have an account?{" "}
+          {t("auth.register.alreadyHaveAccount")}{" "}
           <Link href="/login" className="font-medium text-brand-green-700">
-            Log in
+            {t("auth.login.submit")}
           </Link>
         </p>
       </CardContent>
@@ -149,12 +148,13 @@ function RegisterForm() {
 }
 
 export default function RegisterPage() {
+  const t = useT();
   return (
     <div className="harvest-hero flex min-h-[calc(100vh-4rem)] flex-col justify-center px-4 py-16">
       <div className="mx-auto w-full max-w-md">
         <div className="mb-6 flex flex-col items-center gap-2">
           <Image src="/logo.png" alt="ANI-KONEKTA" width={64} height={55} className="h-14 w-auto" priority />
-          <p className="text-sm font-medium text-brand-green-800">Join the ANI-KONEKTA network</p>
+          <p className="text-sm font-medium text-brand-green-800">{t("auth.register.joinNetwork")}</p>
         </div>
         <Suspense fallback={null}>
           <RegisterForm />

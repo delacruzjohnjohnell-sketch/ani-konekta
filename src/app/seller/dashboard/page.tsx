@@ -1,17 +1,21 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input, Label, Select } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { StarRatingDisplay } from "@/components/ui/star-rating";
 import { ListingPricePreview } from "@/components/listing-price-preview";
+import { ActionForm } from "@/components/ui/action-form";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { EditListingForm } from "@/components/seller/edit-listing-form";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { createListing, deleteListing } from "@/app/actions";
 import { DeleteListingButton } from "@/components/ui/delete-listing-button";
 import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/lib/commission";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
+import { getLocale } from "@/lib/i18n/server";
+import { t } from "@/lib/i18n";
 import Link from "next/link";
 
 const MUNICIPALITIES = [
@@ -29,6 +33,7 @@ const MUNICIPALITIES = [
 export default async function SellerDashboard() {
   const session = await auth();
   const userId = session!.user.id;
+  const locale = await getLocale();
 
   const [me, listings, orders, activeCommissionConfigs] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
@@ -64,29 +69,29 @@ export default async function SellerDashboard() {
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">Seller dashboard</h1>
-        <p className="text-neutral-600">Welcome back, {me.name}.</p>
+        <h1 className="text-2xl font-bold text-neutral-900">{t("seller.title", locale)}</h1>
+        <p className="text-neutral-600">{t("seller.welcome", locale, { name: me.name })}</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="overflow-hidden">
           <div className="h-1.5 bg-gradient-to-r from-brand-green-500 to-brand-green-800" />
           <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">Settled earnings</p>
+            <p className="text-sm text-neutral-500">{t("seller.settledEarnings", locale)}</p>
             <p className="mt-1 text-2xl font-bold text-brand-green-700">{formatPeso(earnings)}</p>
           </CardContent>
         </Card>
         <Card className="overflow-hidden">
           <div className="h-1.5 bg-gradient-to-r from-brand-gold-400 to-brand-gold-700" />
           <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">Pending in escrow</p>
+            <p className="text-sm text-neutral-500">{t("seller.pendingEscrow", locale)}</p>
             <p className="mt-1 text-2xl font-bold text-brand-gold-600">{formatPeso(pendingEscrow)}</p>
           </CardContent>
         </Card>
         <Card className="overflow-hidden">
           <div className="h-1.5 bg-gradient-to-r from-brand-green-500 via-brand-gold-400 to-brand-gold-700" />
           <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">Your rating</p>
+            <p className="text-sm text-neutral-500">{t("seller.yourRating", locale)}</p>
             <p className="mt-1">
               <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} size="lg" />
             </p>
@@ -97,38 +102,35 @@ export default async function SellerDashboard() {
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Create a listing</CardTitle>
-            <CardDescription>
-              We&apos;ll show an AI-suggested fair price (placeholder heuristic) next to
-              your asking price.
-            </CardDescription>
+            <CardTitle>{t("seller.createListing.title", locale)}</CardTitle>
+            <CardDescription>{t("seller.createListing.subtitle", locale)}</CardDescription>
           </CardHeader>
           <CardContent>
-            <form action={createListing} className="space-y-4">
+            <ActionForm action={createListing} className="space-y-4">
               <div>
-                <Label htmlFor="cropType">Crop type</Label>
+                <Label htmlFor="cropType">{t("seller.field.cropType", locale)}</Label>
                 <Input id="cropType" name="cropType" placeholder="Palay (Rice)" required />
               </div>
               <div>
-                <Label htmlFor="variety">Variety (optional)</Label>
+                <Label htmlFor="variety">{t("seller.field.variety", locale)} ({t("common.optional", locale)})</Label>
                 <Input id="variety" name="variety" placeholder="RC-160" />
               </div>
               <ListingPricePreview sellerCommissionRatePercent={previewSellerCommissionRatePercent} />
               <div>
-                <Label htmlFor="harvestDate">Harvest date</Label>
+                <Label htmlFor="harvestDate">{t("seller.field.harvestDate", locale)}</Label>
                 <Input id="harvestDate" name="harvestDate" type="date" required />
               </div>
               <div>
-                <Label htmlFor="qualityTag">Quality tag</Label>
+                <Label htmlFor="qualityTag">{t("seller.field.qualityTag", locale)}</Label>
                 <Select id="qualityTag" name="qualityTag" defaultValue="STANDARD">
-                  <option value="STANDARD">Standard</option>
-                  <option value="GRADE_A">Grade A</option>
-                  <option value="ORGANIC">Organic</option>
-                  <option value="GAP_CERTIFIED">GAP-certified</option>
+                  <option value="STANDARD">{t("quality.STANDARD", locale)}</option>
+                  <option value="GRADE_A">{t("quality.GRADE_A", locale)}</option>
+                  <option value="ORGANIC">{t("quality.ORGANIC", locale)}</option>
+                  <option value="GAP_CERTIFIED">{t("quality.GAP_CERTIFIED", locale)}</option>
                 </Select>
               </div>
               <div>
-                <Label htmlFor="municipality">Municipality</Label>
+                <Label htmlFor="municipality">{t("seller.field.municipality", locale)}</Label>
                 <Select id="municipality" name="municipality" defaultValue={me.municipality ?? MUNICIPALITIES[0]}>
                   {MUNICIPALITIES.map((m) => (
                     <option key={m} value={m}>
@@ -137,31 +139,43 @@ export default async function SellerDashboard() {
                   ))}
                 </Select>
               </div>
-              <PhotoUpload name="photo" label="Listing photo" required />
-              <Button type="submit" className="w-full">
-                Post listing
-              </Button>
-            </form>
+              <div>
+                <Label htmlFor="minOrderQtyKg">{t("seller.field.minOrderQty", locale)}</Label>
+                <Input id="minOrderQtyKg" name="minOrderQtyKg" type="number" min="0" step="0.1" />
+                <p className="mt-1 text-xs text-neutral-400">{t("seller.field.minOrderQtyHint", locale)}</p>
+              </div>
+              <div>
+                <Label htmlFor="description">{t("seller.field.description", locale)}</Label>
+                <Textarea id="description" name="description" rows={3} />
+                <p className="mt-1 text-xs text-neutral-400">{t("seller.field.descriptionHint", locale)}</p>
+              </div>
+              <PhotoUpload name="photo" label={t("seller.field.photo", locale)} required />
+              <SubmitButton
+                className="w-full"
+                label={t("seller.postListing", locale)}
+                pendingLabel={t("seller.postListing.submitting", locale)}
+              />
+            </ActionForm>
           </CardContent>
         </Card>
 
         <div className="space-y-6 lg:col-span-3">
           <Card>
             <CardHeader>
-              <CardTitle>My listings</CardTitle>
+              <CardTitle>{t("seller.myListings", locale)}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {listings.length === 0 && (
-                <p className="text-sm text-neutral-500">No listings yet.</p>
+                <p className="text-sm text-neutral-500">{t("seller.noListingsYet", locale)}</p>
               )}
               {listings.map((l) => {
                 const hasActiveOrder = l.orders.some((o) => o.status !== "SETTLED");
                 return (
                   <div
                     key={l.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 p-3"
+                    className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-black/10 p-3"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-start gap-3">
                       {resolvePhotoUrl(l.photoBlobKey) && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -178,9 +192,32 @@ export default async function SellerDashboard() {
                           Asking {formatPeso(l.askingPricePerKg)}/kg · AI suggested{" "}
                           {formatPeso(l.aiSuggestedPricePerKg)}/kg · {l.municipality}
                         </p>
+                        {l.minOrderQtyKg != null && (
+                          <p className="text-xs text-neutral-400">
+                            {t("seller.minOrder", locale)}: {l.minOrderQtyKg} kg
+                          </p>
+                        )}
+                        {l.description && (
+                          <p className="mt-1 max-w-md text-xs text-neutral-500">{l.description}</p>
+                        )}
                         {hasActiveOrder && (
                           <p className="text-xs text-brand-gold-700">Has an active order — can&apos;t delete</p>
                         )}
+                        <EditListingForm
+                          listing={{
+                            id: l.id,
+                            cropType: l.cropType,
+                            variety: l.variety,
+                            volumeKg: l.volumeKg,
+                            harvestDate: l.harvestDate,
+                            askingPricePerKg: l.askingPricePerKg,
+                            qualityTag: l.qualityTag,
+                            municipality: l.municipality,
+                            minOrderQtyKg: l.minOrderQtyKg,
+                            description: l.description,
+                          }}
+                          municipalities={MUNICIPALITIES}
+                        />
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -199,11 +236,11 @@ export default async function SellerDashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle>My orders</CardTitle>
+              <CardTitle>{t("seller.myOrders", locale)}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {orders.length === 0 && (
-                <p className="text-sm text-neutral-500">No orders yet.</p>
+                <p className="text-sm text-neutral-500">{t("seller.noOrdersYet", locale)}</p>
               )}
               {orders.map((o) => (
                 <Link
@@ -220,7 +257,9 @@ export default async function SellerDashboard() {
                     </p>
                   </div>
                   <Badge tone={o.status === "SETTLED" ? "green" : "gold"}>
-                    {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                    {ORDER_STATUS_LABELS[o.status]
+                      ? t(`order.status.${o.status}`, locale)
+                      : o.status}
                   </Badge>
                 </Link>
               ))}
