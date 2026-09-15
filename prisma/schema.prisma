@@ -98,6 +98,19 @@ enum WalletTransactionType {
   REFUND
 }
 
+// --- Escrow release lockdown ---------------------------------------------
+enum EscrowTriggerType {
+  BUYER_CONFIRM
+  AUTO_TIMEOUT
+  ADMIN_DUAL_APPROVAL
+}
+
+enum DisputeApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id              String   @id @default(cuid())
   name            String
@@ -204,14 +217,23 @@ model Order {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
+  // Set the moment an order (re-)enters DELIVERED (by advanceRouteStatus, or
+  // by an admin restoring a resolved dispute back to DELIVERED) — the clock
+  // the auto-release cron job (src/app/api/cron/auto-release-escrow) reads
+  // against. Resetting it on dispute-resolution gives the buyer a fresh
+  // window rather than an instant auto-release right after resolution.
+  escrowEligibleAt DateTime?
+
   routeId String?
   route   PooledRoute? @relation(fields: [routeId], references: [id])
 
-  proofOfDelivery    ProofOfDelivery?
-  reputationEvents   ReputationEvent[]
-  ratings            Rating[]
-  conversations      Conversation[]
-  walletTransactions WalletTransaction[]
+  proofOfDelivery        ProofOfDelivery?
+  reputationEvents       ReputationEvent[]
+  ratings                Rating[]
+  conversations          Conversation[]
+  walletTransactions     WalletTransaction[]
+  escrowEvents           EscrowEvent[]
+  disputeReleaseRequests DisputeReleaseRequest[]
 
   // --- Commission & fee engine snapshot (Feature: Configurable Commission
   // & Fee Engine). Computed once at order-creation time from whichever
@@ -443,4 +465,42 @@ model WalletTransaction {
   order     Order?                @relation(fields: [orderId], references: [id])
   note      String?
   createdAt DateTime              @default(now())
+}
+
+// --- Escrow release lockdown ---------------------------------------------
+// Append-only: every legitimate transition into SETTLED/RELEASED writes
+// exactly one row here (BUYER_CONFIRM / AUTO_TIMEOUT / ADMIN_DUAL_APPROVAL —
+// the only three code paths allowed to do so, see src/app/actions.ts and
+// src/app/api/cron/auto-release-escrow). Application code must never
+// update() or delete() a row in this table.
+model EscrowEvent {
+  id          String            @id @default(cuid())
+  orderId     String
+  order       Order             @relation(fields: [orderId], references: [id])
+  fromStatus  String
+  toStatus    String
+  // userId of who triggered it, or the literal string "SYSTEM" for the
+  // auto-release cron job.
+  triggeredBy String
+  triggerType EscrowTriggerType
+  // e.g. { proofOfDeliveryId } for BUYER_CONFIRM, { windowMs } for
+  // AUTO_TIMEOUT, { openedBy, approvedBy, requestId } for ADMIN_DUAL_APPROVAL.
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+}
+
+// One row per admin-initiated request to release a DISPUTED order's escrow
+// to the seller. `openedBy` is the admin who decides the dispute should
+// resolve in the seller's favor; a *different* admin must then approve
+// (approveDisputeRelease enforces openedBy != approvedBy) before any money
+// moves — see FEATURE 1 spec, "dual control".
+model DisputeReleaseRequest {
+  id         String                 @id @default(cuid())
+  orderId    String
+  order      Order                  @relation(fields: [orderId], references: [id])
+  openedBy   String
+  approvedBy String?
+  status     DisputeApprovalStatus  @default(PENDING)
+  createdAt  DateTime               @default(now())
+  decidedAt  DateTime?
 }

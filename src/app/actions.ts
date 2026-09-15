@@ -14,6 +14,7 @@ import { t } from "@/lib/i18n";
 import type { ActionState } from "@/components/ui/action-form";
 import { createEscrowedOrderForLines } from "@/lib/order-fulfillment";
 import { StockUnavailableError } from "@/lib/listing-stock";
+import { sweepAutoReleaseEligibleOrders } from "@/lib/escrow-auto-release";
 import {
   getOrCreateWallet,
   walletHoldForOrder,
@@ -539,7 +540,13 @@ export async function advanceRouteStatus(formData: FormData) {
   const orderStatus = nextStatus === "DELIVERED" ? "DELIVERED" : "IN_TRANSIT";
   await prisma.order.updateMany({
     where: { id: { in: route.orders.map((o) => o.id) } },
-    data: { status: orderStatus as never },
+    data: {
+      status: orderStatus as never,
+      // Starts the auto-release countdown (see
+      // src/app/api/cron/auto-release-escrow) — this app has no separate
+      // Order.deliveredAt, so escrowEligibleAt is the adapted equivalent.
+      ...(nextStatus === "DELIVERED" ? { escrowEligibleAt: new Date() } : {}),
+    },
   });
 
   if (nextStatus === "DELIVERED") {
@@ -564,6 +571,23 @@ export async function advanceRouteStatus(formData: FormData) {
 // ---------------------------------------------------------------------------
 // BUYER: confirm delivery -> releases escrow to seller, settles the order,
 // and applies reputation events.
+//
+// FEATURE 1 — Escrow Release Lockdown, trigger #1 (BUYER_CONFIRM). Three
+// server-side checks gate this, all independent of anything the client
+// sends: requester === order.buyerId (role is also pinned to BUYER via
+// requireUser — a seller/hauler/admin can never reach this function at
+// all), order.status is exactly "DELIVERED" (not any earlier state, and not
+// "DISPUTED" — a disputed order is no longer DELIVERED, see flagDispute),
+// and a ProofOfDelivery row exists on the order.
+//
+// Idempotency: the prisma.order.updateMany below is a DB-level
+// compare-and-swap — it only ever matches (and updates) a row that is
+// STILL status=DELIVERED/escrowStatus=HELD at the moment the UPDATE
+// executes. Postgres serializes concurrent UPDATEs to the same row, so of
+// two racing confirmDelivery calls (a double-submit, a retry) or a race
+// against the auto-release cron (src/app/api/cron/auto-release-escrow) or
+// an admin dual-approval release, at most one can ever match — every other
+// caller sees claimed.count === 0 and returns without paying out twice.
 // ---------------------------------------------------------------------------
 export async function confirmDelivery(formData: FormData) {
   const user = await requireUser("BUYER");
@@ -571,16 +595,37 @@ export async function confirmDelivery(formData: FormData) {
 
   const order = await prisma.order.findUniqueOrThrow({
     where: { id: orderId },
-    include: { route: true },
+    include: { route: true, proofOfDelivery: true },
   });
   if (order.buyerId !== user.id) throw new Error("Not your order.");
   if (order.status !== "DELIVERED") throw new Error("Order is not yet delivered.");
+  if (!order.proofOfDelivery) {
+    throw new Error("No proof of delivery on record for this order.");
+  }
+
+  const claimed = await prisma.order.updateMany({
+    where: { id: order.id, status: "DELIVERED", escrowStatus: "HELD" },
+    data: { status: "SETTLED", escrowStatus: "RELEASED" },
+  });
+  if (claimed.count === 0) {
+    // Already settled through another path (retry, or raced with
+    // auto-release/admin release) — not an error, just a no-op.
+    return;
+  }
 
   // Settlement pays out three ways from the escrowed grand total, using the
   // rates/amounts snapshotted onto the order at creation time (never
   // recomputed here) — see src/lib/commission.ts.
   // Pre-migration orders may not have a snapshot yet; fall back to the full
   // gross amount for the seller so nothing silently pays out ₱0.
+  //
+  // NOTE (flagged, per user decision — gateway/webhook work out of scope for
+  // now): paymentProvider is still MockPaymentProvider (src/lib/payments.ts)
+  // — it always resolves. When a real gateway is wired up, this call should
+  // become claim -> call gateway -> confirm-or-compensate (e.g. an
+  // intermediate escrowStatus like "RELEASING" that rolls back to "HELD" on
+  // gateway failure), since right now the DB is already marked
+  // SETTLED/RELEASED above before the (currently infallible) gateway call.
   const netPayoutToSeller = order.netPayoutToSellerPHP ?? order.totalAmount;
 
   await paymentProvider.releaseFunds({
@@ -597,9 +642,15 @@ export async function confirmDelivery(formData: FormData) {
     });
   }
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: { status: "SETTLED", escrowStatus: "RELEASED" },
+  await prisma.escrowEvent.create({
+    data: {
+      orderId: order.id,
+      fromStatus: "DELIVERED",
+      toStatus: "SETTLED",
+      triggeredBy: user.id,
+      triggerType: "BUYER_CONFIRM",
+      metadata: { proofOfDeliveryId: order.proofOfDelivery.id },
+    },
   });
 
   await prisma.proofOfDelivery.update({
@@ -713,15 +764,141 @@ export async function flagDispute(formData: FormData) {
   revalidatePath(`/buyer/order/${order.id}`);
 }
 
+// FEATURE 1 — Escrow Release Lockdown: this used to accept an arbitrary
+// `restoreStatus` string straight from the submitted form
+// (`data: { status: restoreStatus as never }`, no allow-list) — a single
+// admin could have crafted a request with restoreStatus="SETTLED" and
+// released escrow with zero payout call, zero second approver, and zero
+// audit trail. Today's UI never sent anything but "DELIVERED", but the
+// server action itself didn't enforce that. Fixed: this path can only ever
+// restore a disputed order to DELIVERED (never moves money — the buyer
+// still has to confirm delivery normally afterward, or an admin can use
+// initiateDisputeRelease/approveDisputeRelease below if funds should go to
+// the seller despite the dispute). Restoring gives a fresh
+// escrowEligibleAt so the buyer isn't hit with an instant auto-release the
+// moment the dispute closes.
 export async function resolveDispute(formData: FormData) {
   await requireUser("ADMIN");
   const orderId = String(formData.get("orderId"));
-  const restoreStatus = String(formData.get("restoreStatus") ?? "DELIVERED");
 
   const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  if (order.status !== "DISPUTED") throw new Error("Order is not disputed.");
+
   await prisma.order.update({
     where: { id: order.id },
-    data: { status: restoreStatus as never },
+    data: { status: "DELIVERED", escrowEligibleAt: new Date() },
+  });
+  await prisma.reputationEvent.create({
+    data: { userId: order.sellerId, orderId: order.id, type: "RESOLVED", delta: 2 },
+  });
+  await prisma.user.update({
+    where: { id: order.sellerId },
+    data: { reputationScore: { increment: 2 } },
+  });
+
+  revalidatePath("/admin");
+}
+
+// ---------------------------------------------------------------------------
+// FEATURE 1 — Escrow Release Lockdown, trigger #3 (ADMIN_DUAL_APPROVAL).
+// The ONLY way a disputed order's escrow can be released to the seller
+// despite the open dispute. Two distinct admins required:
+//   1. initiateDisputeRelease — admin A opens a PENDING request.
+//   2. approveDisputeRelease — admin B (must differ from A) approves it;
+//      only then does the actual release/payout fire.
+// A single admin acting alone can never move money down this path.
+// ---------------------------------------------------------------------------
+export async function initiateDisputeRelease(formData: FormData) {
+  const admin = await requireUser("ADMIN");
+  const orderId = String(formData.get("orderId"));
+
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  if (order.status !== "DISPUTED") throw new Error("Order is not disputed.");
+
+  const existing = await prisma.disputeReleaseRequest.findFirst({
+    where: { orderId, status: "PENDING" },
+  });
+  if (existing) throw new Error("A release request is already pending for this order.");
+
+  await prisma.disputeReleaseRequest.create({
+    data: { orderId, openedBy: admin.id },
+  });
+
+  revalidatePath("/admin");
+}
+
+export async function rejectDisputeRelease(formData: FormData) {
+  await requireUser("ADMIN");
+  const requestId = String(formData.get("requestId"));
+
+  const request = await prisma.disputeReleaseRequest.findUniqueOrThrow({ where: { id: requestId } });
+  if (request.status !== "PENDING") throw new Error("This request was already decided.");
+
+  await prisma.disputeReleaseRequest.update({
+    where: { id: request.id },
+    data: { status: "REJECTED", decidedAt: new Date() },
+  });
+
+  revalidatePath("/admin");
+}
+
+export async function approveDisputeRelease(formData: FormData) {
+  const admin = await requireUser("ADMIN");
+  const requestId = String(formData.get("requestId"));
+
+  const request = await prisma.disputeReleaseRequest.findUniqueOrThrow({
+    where: { id: requestId },
+    include: { order: { include: { route: true } } },
+  });
+  if (request.status !== "PENDING") throw new Error("This request was already decided.");
+  if (request.openedBy === admin.id) {
+    throw new Error("A different admin must approve this release — you opened this request.");
+  }
+
+  const order = request.order;
+  if (order.status !== "DISPUTED") throw new Error("Order is no longer disputed.");
+
+  // Same CAS idempotency pattern as confirmDelivery — only one release path
+  // can ever win the race for a given order.
+  const claimed = await prisma.order.updateMany({
+    where: { id: order.id, status: "DISPUTED", escrowStatus: "HELD" },
+    data: { status: "SETTLED", escrowStatus: "RELEASED" },
+  });
+  if (claimed.count === 0) {
+    await prisma.disputeReleaseRequest.update({
+      where: { id: request.id },
+      data: { status: "REJECTED", decidedAt: new Date() },
+    });
+    throw new Error("This order was already settled through another path.");
+  }
+
+  const netPayoutToSeller = order.netPayoutToSellerPHP ?? order.totalAmount;
+  await paymentProvider.releaseFunds({
+    orderId: order.id,
+    amount: netPayoutToSeller,
+    sellerId: order.sellerId,
+  });
+  if (order.haulerPayoutAmountPHP && order.route) {
+    await paymentProvider.payHauler({
+      orderId: order.id,
+      amount: order.haulerPayoutAmountPHP,
+      haulerId: order.route.haulerId,
+    });
+  }
+
+  await prisma.disputeReleaseRequest.update({
+    where: { id: request.id },
+    data: { status: "APPROVED", approvedBy: admin.id, decidedAt: new Date() },
+  });
+  await prisma.escrowEvent.create({
+    data: {
+      orderId: order.id,
+      fromStatus: "DISPUTED",
+      toStatus: "SETTLED",
+      triggeredBy: admin.id,
+      triggerType: "ADMIN_DUAL_APPROVAL",
+      metadata: { openedBy: request.openedBy, approvedBy: admin.id, requestId: request.id },
+    },
   });
   await prisma.reputationEvent.create({
     data: { userId: order.sellerId, orderId: order.id, type: "RESOLVED", delta: 2 },
@@ -790,4 +967,18 @@ export async function endDateCommissionConfig(formData: FormData) {
   });
 
   revalidatePath("/admin/commission");
+}
+
+// ---------------------------------------------------------------------------
+// ADMIN: manually run the exact same auto-release sweep the cron job runs
+// (src/lib/escrow-auto-release.ts). NOT a bypass of the dispute-free window
+// — it only processes orders that already meet the window+no-dispute
+// criteria, same as the cron. Exists because Vercel's Hobby tier limits
+// cron jobs to once per day (vercel.json runs it nightly); this gives an
+// admin a way to trigger the sweep on demand in between.
+// ---------------------------------------------------------------------------
+export async function runAutoReleaseSweep(): Promise<void> {
+  await requireUser("ADMIN");
+  await sweepAutoReleaseEligibleOrders();
+  revalidatePath("/admin");
 }

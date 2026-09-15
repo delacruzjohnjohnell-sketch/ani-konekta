@@ -115,6 +115,18 @@ async function main() {
     passwordHash,
   });
 
+  // Second admin — needed to test FEATURE 1's dual-control dispute-release
+  // approval (one admin opens the request, a *different* admin must
+  // approve it; a single admin account can't exercise that path at all).
+  await upsertUser({
+    name: "ANI-KONEKTA Compliance Admin",
+    role: "ADMIN",
+    phone: "09179000002",
+    email: "admin2@anikonekta.demo",
+    municipality: "Cabanatuan City",
+    passwordHash,
+  });
+
   // ANI-Wallet demo balances for the 3 seed buyers (idempotent, see
   // seedWallet above — never resets an existing balance on reseed).
   await Promise.all([
