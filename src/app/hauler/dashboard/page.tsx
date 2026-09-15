@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { cn, formatPeso } from "@/lib/utils";
-import { acceptAndPoolOrder, advanceRouteStatus } from "@/app/actions";
+import { acceptAndPoolOrder, advanceRouteStatus, setHaulerRefrigeratedVehicle } from "@/app/actions";
 import { StarRatingDisplay } from "@/components/ui/star-rating";
 import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/lib/commission";
 import { getLocale } from "@/lib/i18n/server";
@@ -129,6 +129,30 @@ export default async function HaulerDashboard({
 
       <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
 
+      {/* FEATURE 2 — Cold-Chain Classification: self-declared vehicle
+          capability, gates which orders acceptAndPoolOrder will let this
+          hauler accept (server-enforced there, not just this checkbox). */}
+      <Card className="overflow-hidden">
+        <CardContent className="flex items-center justify-between gap-3 p-4">
+          <div>
+            <p className="font-medium text-neutral-900">🧊 {t("coldChain.vehicleLabel", locale)}</p>
+            <p className="text-xs text-neutral-500">{t("coldChain.vehicleHint", locale)}</p>
+          </div>
+          <form action={setHaulerRefrigeratedVehicle} className="flex items-center gap-2">
+            <input
+              id="hasRefrigeratedVehicle"
+              name="hasRefrigeratedVehicle"
+              type="checkbox"
+              defaultChecked={me.hasRefrigeratedVehicle}
+              className="h-4 w-4 accent-brand-green-700"
+            />
+            <Button type="submit" size="sm" variant="outline">
+              {t("common.save", locale)}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
       {/* Top stat cards — icon + big number, per spec */}
       <div className="grid grid-cols-3 gap-2">
         <Card className="overflow-hidden">
@@ -201,22 +225,30 @@ export default async function HaulerDashboard({
                   <details className="text-sm text-neutral-500">
                     <summary className="cursor-pointer text-brand-green-700">{t("common.viewDetails", locale)}</summary>
                     <div className="mt-2 space-y-2">
-                      {groupOrders.map((o) => (
-                        <div key={o.id} className="rounded-md border border-brand-gold-200 bg-brand-gold-50/40 p-2">
-                          <p>
-                            Order #{o.id.slice(-8)} · {o.listing.cropType} · {o.volumeKg} kg
-                          </p>
-                          <p className="text-xs">
-                            {o.seller.name} → {o.buyer.name} · {formatPeso(o.totalAmount)}
-                          </p>
-                          <form action={acceptAndPoolOrder} className="mt-1">
-                            <input type="hidden" name="orderId" value={o.id} />
-                            <Button type="submit" size="sm">
-                              {t("hauler.acceptRoute", locale)}
-                            </Button>
-                          </form>
-                        </div>
-                      ))}
+                      {groupOrders.map((o) => {
+                        const blocked = o.listing.requiresColdChain && !me.hasRefrigeratedVehicle;
+                        return (
+                          <div key={o.id} className="rounded-md border border-brand-gold-200 bg-brand-gold-50/40 p-2">
+                            <p>
+                              Order #{o.id.slice(-8)} · {o.listing.cropType} · {o.volumeKg} kg
+                              {o.listing.requiresColdChain && (
+                                <Badge tone="blue" className="ml-2 text-[10px]">
+                                  🧊 {t("coldChain.badge", locale)}
+                                </Badge>
+                              )}
+                            </p>
+                            <p className="text-xs">
+                              {o.seller.name} → {o.buyer.name} · {formatPeso(o.totalAmount)}
+                            </p>
+                            <form action={acceptAndPoolOrder} className="mt-1">
+                              <input type="hidden" name="orderId" value={o.id} />
+                              <Button type="submit" size="sm" disabled={blocked}>
+                                {blocked ? t("coldChain.needsRefrigeratedVehicle", locale) : t("hauler.acceptRoute", locale)}
+                              </Button>
+                            </form>
+                          </div>
+                        );
+                      })}
                     </div>
                   </details>
                   {/* One big Accept Route button pools every order in this
@@ -224,11 +256,27 @@ export default async function HaulerDashboard({
                       acceptAndPoolOrder action (unchanged) — grabs the
                       first not-yet-accepted order in the group; subsequent
                       taps (or the per-order buttons under View Details)
-                      handle the rest. */}
+                      handle the rest. Disabled (not hidden — FEATURE 2 spec:
+                      "should not see (or should see disabled)") when that
+                      first order needs cold-chain and this hauler doesn't
+                      have one; the per-order buttons above still work
+                      individually for any non-cold-chain orders in the group. */}
+                  {groupOrders[0].listing.requiresColdChain && (
+                    <Badge tone="blue" className="text-[10px]">
+                      🧊 {t("coldChain.badge", locale)}
+                    </Badge>
+                  )}
                   <form action={acceptAndPoolOrder}>
                     <input type="hidden" name="orderId" value={groupOrders[0].id} />
-                    <Button type="submit" size="lg" className="w-full text-base">
-                      {t("hauler.acceptRoute", locale)}
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="w-full text-base"
+                      disabled={groupOrders[0].listing.requiresColdChain && !me.hasRefrigeratedVehicle}
+                    >
+                      {groupOrders[0].listing.requiresColdChain && !me.hasRefrigeratedVehicle
+                        ? t("coldChain.needsRefrigeratedVehicle", locale)
+                        : t("hauler.acceptRoute", locale)}
                     </Button>
                   </form>
                 </CardContent>

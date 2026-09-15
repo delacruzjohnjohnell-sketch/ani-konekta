@@ -60,6 +60,11 @@ export async function createListing(
   const minOrderQtyKgRaw = String(formData.get("minOrderQtyKg") ?? "").trim();
   const minOrderQtyKg = minOrderQtyKgRaw ? Number(minOrderQtyKgRaw) : null;
   const description = String(formData.get("description") ?? "").trim() || null;
+  // FEATURE 2 — Cold-Chain Classification: the checkbox always renders
+  // pre-checked/unchecked per guessRequiresColdChain(cropType) (client-side,
+  // see the listing form), but the seller can override it — this reads
+  // whatever the submitted checkbox state actually was, not the heuristic.
+  const requiresColdChain = formData.get("requiresColdChain") === "on";
   const photoFile = formData.get("photo");
 
   if (!cropType || !municipality || !volumeKg || !askingPricePerKg) {
@@ -100,6 +105,7 @@ export async function createListing(
       minOrderQtyKg,
       description,
       photoBlobKey,
+      requiresColdChain,
     },
   });
 
@@ -137,6 +143,7 @@ export async function editListing(
   const minOrderQtyKgRaw = String(formData.get("minOrderQtyKg") ?? "").trim();
   const minOrderQtyKg = minOrderQtyKgRaw ? Number(minOrderQtyKgRaw) : null;
   const description = String(formData.get("description") ?? "").trim() || null;
+  const requiresColdChain = formData.get("requiresColdChain") === "on";
   const photoFile = formData.get("photo");
 
   if (!cropType || !municipality || !volumeKg || !askingPricePerKg) {
@@ -166,6 +173,7 @@ export async function editListing(
       minOrderQtyKg,
       description,
       photoBlobKey,
+      requiresColdChain,
     },
   });
 
@@ -445,6 +453,23 @@ export async function acceptAndPoolOrder(formData: FormData) {
   });
   if (order.status !== "ORDERED_ESCROWED") {
     throw new Error("Order is not ready for pooling.");
+  }
+
+  // FEATURE 2 — Cold-Chain Classification: a cold-chain order may only be
+  // accepted by a hauler with a refrigerated vehicle. Since capability is
+  // per-hauler (not per-vehicle/per-route — see the User.hasRefrigeratedVehicle
+  // comment in schema.prisma), a refrigerated hauler's route can freely mix
+  // cold-chain and ambient orders (the vehicle covers the whole trip either
+  // way); a non-refrigerated hauler simply can never accept a cold-chain
+  // order onto any route, which is what keeps the two from ever mixing on a
+  // route that isn't refrigerated.
+  if (order.listing.requiresColdChain) {
+    const hauler = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    if (!hauler.hasRefrigeratedVehicle) {
+      throw new Error(
+        "🧊 This order requires refrigerated transport — your account isn't marked as having a refrigerated vehicle. Update this on your dashboard if you do."
+      );
+    }
   }
 
   const pickupMunicipality = order.listing.municipality;
@@ -981,4 +1006,23 @@ export async function runAutoReleaseSweep(): Promise<void> {
   await requireUser("ADMIN");
   await sweepAutoReleaseEligibleOrders();
   revalidatePath("/admin");
+}
+
+// ---------------------------------------------------------------------------
+// FEATURE 2 — Cold-Chain Classification: hauler self-declares whether they
+// have a refrigerated vehicle. Self-service (matches how a hauler already
+// self-submits ID verification) — no admin-override UI exists for this yet
+// (flagged as a scope trim, not built: this app has no generic
+// "admin edits any user field" surface anywhere to hang it off of).
+// ---------------------------------------------------------------------------
+export async function setHaulerRefrigeratedVehicle(formData: FormData) {
+  const user = await requireUser("HAULER");
+  const hasRefrigeratedVehicle = formData.get("hasRefrigeratedVehicle") === "on";
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { hasRefrigeratedVehicle },
+  });
+
+  revalidatePath("/hauler/dashboard");
 }

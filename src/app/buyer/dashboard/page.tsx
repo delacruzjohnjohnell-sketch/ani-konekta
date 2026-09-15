@@ -144,6 +144,7 @@ export default async function BuyerDashboard({
       sellerRatingSum: l.seller.ratingSum,
       sellerRatingCount: l.seller.ratingCount,
       sellerVerification: getPublicVerificationBadge(l.seller),
+      requiresColdChain: l.requiresColdChain,
       badges: stats?.badges ?? [],
       featuredLabel,
       bulkMatchFormId: sorted.length >= 2 ? "bulk-match-form" : undefined,

@@ -144,6 +144,8 @@ const tl: Record<DictionaryKey, string> = {
   "seller.field.minOrderQtyHint": "Iwanang blangko kung walang minimum — puwedeng mag-order ang buyer ng kahit anong dami hangga't may stock.",
   "seller.field.description": "Deskripsyon",
   "seller.field.descriptionHint": "Sabihin sa buyer ang tungkol sa iyong ani (opsyonal).",
+  "seller.field.requiresColdChain": "Kailangan ng refrigerated na sasakyan (cold-chain)",
+  "seller.field.requiresColdChainHint": "I-check ito para sa mabilis-masirang ani na kailangan ng refrigerated na trak — mga hauler lang na may refrigerated na sasakyan ang makakatanggap ng order na ito.",
   "seller.postListing": "I-post ang Listing",
   "seller.postListing.submitting": "Nagpo-post…",
   "seller.postListing.success": "Na-post ang listing!",
@@ -401,6 +403,13 @@ const tl: Record<DictionaryKey, string> = {
   "sms.log.empty": "Wala pang SMS.",
   "sms.log.in": "Natanggap",
   "sms.log.out": "Ipinadala",
+
+  // --- Cold-chain classification ---
+  "coldChain.badge": "Kailangan ng cold-chain",
+  "coldChain.needsRefrigeratedVehicle": "Kailangan ng refrigerated na sasakyan",
+  "coldChain.vehicleLabel": "Mayroon akong refrigerated na sasakyan",
+  "coldChain.vehicleHint": "Kailangan para makatanggap ng cold-chain na order (mabilis-masirang produkto na nangangailangan ng refrigerated na transport).",
+  "coldChain.noEligibleHauler": "🧊 Kailangan ng refrigerated transport ang order na ito — hinihintay ang available na cold-chain hauler.",
 };
 
 export default tl;

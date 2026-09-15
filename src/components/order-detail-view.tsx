@@ -74,6 +74,19 @@ export function OrderDetailView({
         </CardContent>
       </Card>
 
+      {/* FEATURE 2 — Cold-Chain Classification: an ORDERED_ESCROWED
+          cold-chain order sits un-accepted until a refrigerated-capable
+          hauler picks it up (acceptAndPoolOrder rejects any other hauler)
+          — this is the explicit "no eligible hauler yet" state the spec
+          asks for, rather than the buyer/seller silently wondering why
+          nothing is happening. */}
+      {order.listing.requiresColdChain && order.status === "ORDERED_ESCROWED" && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          🧊 This order requires refrigerated transport — waiting for an available cold-chain
+          hauler.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="pt-5">

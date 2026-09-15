@@ -20,6 +20,7 @@ type EditableListing = {
   municipality: string;
   minOrderQtyKg: number | null;
   description: string | null;
+  requiresColdChain: boolean;
 };
 
 /**
@@ -133,6 +134,18 @@ export function EditListingForm({
                   defaultValue={listing.minOrderQtyKg ?? ""}
                 />
               </div>
+            </div>
+            <div className="flex items-start gap-2 rounded-lg border border-black/10 bg-white p-3">
+              <input
+                id={`requiresColdChain-${listing.id}`}
+                name="requiresColdChain"
+                type="checkbox"
+                defaultChecked={listing.requiresColdChain}
+                className="mt-0.5 h-4 w-4 accent-brand-green-700"
+              />
+              <label htmlFor={`requiresColdChain-${listing.id}`} className="text-sm text-neutral-700">
+                🧊 {t("seller.field.requiresColdChain")}
+              </label>
             </div>
             <div>
               <Label htmlFor={`description-${listing.id}`}>{t("seller.field.description")}</Label>

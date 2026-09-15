@@ -147,6 +147,20 @@ export default async function SellerDashboard() {
                 <Input id="minOrderQtyKg" name="minOrderQtyKg" type="number" min="0" step="0.1" />
                 <p className="mt-1 text-xs text-neutral-400">{t("seller.field.minOrderQtyHint", locale)}</p>
               </div>
+              <div className="flex items-start gap-2 rounded-lg border border-black/10 bg-neutral-50 p-3">
+                <input
+                  id="requiresColdChain"
+                  name="requiresColdChain"
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-brand-green-700"
+                />
+                <label htmlFor="requiresColdChain" className="text-sm text-neutral-700">
+                  🧊 {t("seller.field.requiresColdChain", locale)}
+                  <span className="mt-0.5 block text-xs text-neutral-500">
+                    {t("seller.field.requiresColdChainHint", locale)}
+                  </span>
+                </label>
+              </div>
               <div>
                 <Label htmlFor="description">{t("seller.field.description", locale)}</Label>
                 <Textarea id="description" name="description" rows={3} />
@@ -195,6 +209,11 @@ export default async function SellerDashboard() {
                           Asking {formatPeso(l.askingPricePerKg)}/kg · AI suggested{" "}
                           {formatPeso(l.aiSuggestedPricePerKg)}/kg · {l.municipality}
                         </p>
+                        {l.requiresColdChain && (
+                          <Badge tone="blue" className="mt-1 text-[10px]">
+                            🧊 {t("coldChain.badge", locale)}
+                          </Badge>
+                        )}
                         {l.minOrderQtyKg != null && (
                           <p className="text-xs text-neutral-400">
                             {t("seller.minOrder", locale)}: {l.minOrderQtyKg} kg
@@ -218,6 +237,7 @@ export default async function SellerDashboard() {
                             municipality: l.municipality,
                             minOrderQtyKg: l.minOrderQtyKg,
                             description: l.description,
+                            requiresColdChain: l.requiresColdChain,
                           }}
                           municipalities={MUNICIPALITIES}
                         />

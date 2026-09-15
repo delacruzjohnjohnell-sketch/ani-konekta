@@ -140,6 +140,8 @@ const en = {
   "seller.field.minOrderQtyHint": "Leave blank for no minimum — buyers can order any amount up to your available stock.",
   "seller.field.description": "Description",
   "seller.field.descriptionHint": "Tell buyers about your produce (optional).",
+  "seller.field.requiresColdChain": "Requires refrigerated transport (cold-chain)",
+  "seller.field.requiresColdChainHint": "Check this for perishable produce that needs a refrigerated truck — only haulers with a refrigerated vehicle will be able to accept this order.",
   "seller.postListing": "Post listing",
   "seller.postListing.submitting": "Posting…",
   "seller.postListing.success": "Listing posted!",
@@ -397,6 +399,13 @@ const en = {
   "sms.log.empty": "No SMS messages yet.",
   "sms.log.in": "Received",
   "sms.log.out": "Sent",
+
+  // --- Cold-chain classification ---
+  "coldChain.badge": "Cold-chain required",
+  "coldChain.needsRefrigeratedVehicle": "Refrigerated vehicle required",
+  "coldChain.vehicleLabel": "I have a refrigerated vehicle",
+  "coldChain.vehicleHint": "Required to accept cold-chain orders (perishables needing refrigerated transport).",
+  "coldChain.noEligibleHauler": "🧊 This order requires refrigerated transport — waiting for an available cold-chain hauler.",
 } as const;
 
 export default en;

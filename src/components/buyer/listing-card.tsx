@@ -28,6 +28,7 @@ export type ListingCardData = {
   sellerRatingSum: number;
   sellerRatingCount: number;
   sellerVerification: PublicVerificationBadge;
+  requiresColdChain: boolean;
   badges: SellerBadge[];
   featuredLabel?: "recommended" | "bestValue" | "freshHarvest" | "popular";
   bulkMatchFormId?: string;
@@ -134,6 +135,11 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
           <Badge tone={VERIFICATION_TONE[listing.sellerVerification]} className="text-[10px]">
             {t(VERIFICATION_LABEL_KEY[listing.sellerVerification])}
           </Badge>
+          {listing.requiresColdChain && (
+            <Badge tone="blue" className="text-[10px]">
+              🧊 {t("coldChain.badge")}
+            </Badge>
+          )}
         </div>
         <p className="text-lg font-bold text-brand-green-700">
           {formatPeso(listing.askingPricePerKg)}

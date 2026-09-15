@@ -135,6 +135,15 @@ model User {
   cooperativeId String?
   cooperative   Cooperative? @relation(fields: [cooperativeId], references: [id])
 
+  // FEATURE 2 — Cold-Chain Classification. Per-hauler (not per-vehicle) —
+  // this app models a hauler as a single-vehicle operator everywhere else
+  // (routing, payouts, dashboard), so a fleet/vehicle sub-model would be new
+  // complexity nothing else here needs yet. Self-declared by the hauler on
+  // their own dashboard; a real onboarding/verification step for this claim
+  // is future work (flagged, not built — matches how ID/KYC verification
+  // exists but this doesn't reuse it).
+  hasRefrigeratedVehicle Boolean @default(false)
+
   listings         Listing[]         @relation("SellerListings")
   buyerOrders      Order[]           @relation("BuyerOrders")
   sellerOrders     Order[]           @relation("SellerOrders")
@@ -194,6 +203,16 @@ model Listing {
   minOrderQtyKg Float?
   // Optional free-text seller description shown on the buyer marketplace card.
   description   String?
+
+  // FEATURE 2 — Cold-Chain Classification. Defaulted per cropType via a
+  // regex heuristic (src/lib/cold-chain.ts — same style as the buyer
+  // dashboard's existing CATEGORIES matcher), seller-overridable at listing
+  // time. coldChainNeedsReview is set by the one-time backfill script
+  // (prisma/backfill-cold-chain-classification.ts) for pre-existing crop
+  // types the heuristic couldn't confidently classify — never guessed
+  // silently, flagged for a human to confirm/correct instead.
+  requiresColdChain    Boolean @default(false)
+  coldChainNeedsReview Boolean @default(false)
 
   orders Order[]
 }
