@@ -15,6 +15,7 @@ import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
 import { VerificationStatusCard } from "@/components/verification/verification-status-card";
 import { getPublicVerificationBadge } from "@/lib/verification-badge";
+import { countUnreadHaulerMessages } from "@/lib/hauler-messaging";
 
 const MUNICIPALITIES = [
   "Cabanatuan City",
@@ -66,7 +67,7 @@ export default async function BuyerDashboard({
   const category = params.category ?? "all";
   const sort = params.sort ?? "recommended";
 
-  const [me, listingsRaw, orders, priceTrends] = await Promise.all([
+  const [me, listingsRaw, orders, priceTrends, unreadHaulerChatCount] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.listing.findMany({
       where: {
@@ -91,6 +92,7 @@ export default async function BuyerDashboard({
       orderBy: { recordedAt: "desc" },
       take: 8,
     }),
+    countUnreadHaulerMessages(userId),
   ]);
 
   const categoryDef = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0];
@@ -313,7 +315,14 @@ export default async function BuyerDashboard({
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>{t("buyer.myOrders", locale)}</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              {t("buyer.myOrders", locale)}
+              {unreadHaulerChatCount > 0 && (
+                <Badge tone="gold" className="text-[10px]">
+                  {unreadHaulerChatCount} new hauler message{unreadHaulerChatCount === 1 ? "" : "s"}
+                </Badge>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {orders.length === 0 && <p className="text-sm text-neutral-500">{t("buyer.noOrdersYet", locale)}</p>}

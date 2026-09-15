@@ -17,6 +17,7 @@ import { resolvePhotoUrl } from "@/lib/blob-storage";
 import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
 import { VerificationStatusCard } from "@/components/verification/verification-status-card";
+import { countUnreadHaulerMessages } from "@/lib/hauler-messaging";
 import Link from "next/link";
 
 const MUNICIPALITIES = [
@@ -36,7 +37,7 @@ export default async function SellerDashboard() {
   const userId = session!.user.id;
   const locale = await getLocale();
 
-  const [me, listings, orders, activeCommissionConfigs] = await Promise.all([
+  const [me, listings, orders, activeCommissionConfigs, unreadHaulerChatCount] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.listing.findMany({
       where: { sellerId: userId, status: { not: "DELETED" } },
@@ -49,6 +50,7 @@ export default async function SellerDashboard() {
       orderBy: { createdAt: "desc" },
     }),
     getActiveCommissionConfigs(),
+    countUnreadHaulerMessages(userId),
   ]);
 
   // Preview-only default rate for the listing form — the true rate for any
@@ -259,7 +261,14 @@ export default async function SellerDashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{t("seller.myOrders", locale)}</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                {t("seller.myOrders", locale)}
+                {unreadHaulerChatCount > 0 && (
+                  <Badge tone="gold" className="text-[10px]">
+                    {unreadHaulerChatCount} new hauler message{unreadHaulerChatCount === 1 ? "" : "s"}
+                  </Badge>
+                )}
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {orders.length === 0 && (

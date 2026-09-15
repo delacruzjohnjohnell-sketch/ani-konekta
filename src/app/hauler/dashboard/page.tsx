@@ -13,6 +13,8 @@ import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
 import { VerificationStatusCard } from "@/components/verification/verification-status-card";
 import { LocationPingSender } from "@/components/hauler/location-ping-sender";
+import { countUnreadHaulerMessages } from "@/lib/hauler-messaging";
+import { HaulerChatPanel } from "@/components/order/hauler-chat-panel";
 
 // Maps each RouteStatus to the ACTION that advances it, and which of the 3
 // user-facing steps (Pickup / In Transit / Delivered) it belongs to. The
@@ -57,7 +59,7 @@ export default async function HaulerDashboard({
   const userId = session!.user.id;
   const locale = await getLocale();
 
-  const [me, unassignedOrders, myRoutes, activeCommissionConfigs] = await Promise.all([
+  const [me, unassignedOrders, myRoutes, activeCommissionConfigs, unreadHaulerChatCount] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.order.findMany({
       where: { status: "ORDERED_ESCROWED" },
@@ -70,6 +72,7 @@ export default async function HaulerDashboard({
       orderBy: { createdAt: "desc" },
     }),
     getActiveCommissionConfigs(),
+    countUnreadHaulerMessages(userId),
   ]);
 
   const myOrders = myRoutes.flatMap((r) => r.orders);
@@ -289,7 +292,14 @@ export default async function HaulerDashboard({
 
       {/* My Routes — simple 3-step flow, one relevant action button */}
       <div>
-        <h2 className="mb-2 text-lg font-bold text-neutral-900">{t("hauler.myRoutes", locale)}</h2>
+        <h2 className="mb-2 flex items-center gap-2 text-lg font-bold text-neutral-900">
+          {t("hauler.myRoutes", locale)}
+          {unreadHaulerChatCount > 0 && (
+            <Badge tone="gold" className="text-[10px]">
+              {unreadHaulerChatCount} new message{unreadHaulerChatCount === 1 ? "" : "s"}
+            </Badge>
+          )}
+        </h2>
         <div className="space-y-3">
           {activeRoutes.length === 0 && (
             <p className="text-sm text-neutral-500">{t("hauler.noHistory", locale)}</p>
@@ -347,15 +357,33 @@ export default async function HaulerDashboard({
 
                   <details className="text-sm text-neutral-500">
                     <summary className="cursor-pointer text-brand-green-700">{t("common.viewDetails", locale)}</summary>
-                    <ul className="mt-2 space-y-1">
+                    <ul className="mt-2 space-y-3">
                       {r.orders.map((o) => (
-                        <li key={o.id} className="flex flex-wrap items-center gap-2">
-                          <span>
-                            #{o.id.slice(-8)} · {o.seller.name} → {o.buyer.name}
-                          </span>
-                          <Badge tone={o.status === "SETTLED" ? "green" : "gray"}>
-                            {t(`order.status.${o.status}`, locale)}
-                          </Badge>
+                        <li key={o.id} className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>
+                              #{o.id.slice(-8)} · {o.seller.name} → {o.buyer.name}
+                            </span>
+                            <Badge tone={o.status === "SETTLED" ? "green" : "gray"}>
+                              {t(`order.status.${o.status}`, locale)}
+                            </Badge>
+                          </div>
+                          {/* FEATURE 4 — In-App Chat: the hauler is in the
+                              middle of two separate threads per order. */}
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <HaulerChatPanel
+                              orderId={o.id}
+                              chatRole="HAULER_TO_BUYER"
+                              viewerId={userId}
+                              title={`Chat with buyer (${o.buyer.name})`}
+                            />
+                            <HaulerChatPanel
+                              orderId={o.id}
+                              chatRole="HAULER_TO_SELLER"
+                              viewerId={userId}
+                              title={`Chat with seller (${o.seller.name})`}
+                            />
+                          </div>
                         </li>
                       ))}
                     </ul>

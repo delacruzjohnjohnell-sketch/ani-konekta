@@ -7,6 +7,7 @@ import { formatPeso, ORDER_STATUS_LABELS, ROUTE_STATUS_LABELS } from "@/lib/util
 import { confirmDelivery, flagDispute, submitRating } from "@/app/actions";
 import { startConversation } from "@/app/messages/actions";
 import { RouteMapLoader } from "@/components/order/route-map-loader";
+import { HaulerChatPanel } from "@/components/order/hauler-chat-panel";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
 import { StarRatingDisplay, StarRatingInput } from "@/components/ui/star-rating";
 import type { Order, Listing, User, ProofOfDelivery, PooledRoute, Rating } from "@prisma/client";
@@ -210,6 +211,32 @@ export function OrderDetailView({
             <p>Est. distance: {order.route.distanceKm} km · Est. ETA: {order.route.etaMinutes} min</p>
           </CardContent>
         </Card>
+      )}
+
+      {/* FEATURE 4 — In-App Chat (Hauler <-> Seller, Hauler <-> Buyer): once
+          a hauler is assigned (order.route exists). A buyer sees only their
+          own thread with the hauler; a seller only theirs; a hauler (and
+          admin, view-only) sees both — never a direct buyer<->seller
+          thread, that's the separate existing feature. */}
+      {order.route && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {(viewerRole === "BUYER" || viewerRole === "HAULER" || viewerRole === "ADMIN") && (
+            <HaulerChatPanel
+              orderId={order.id}
+              chatRole="HAULER_TO_BUYER"
+              viewerId={viewerUserId}
+              title={viewerRole === "BUYER" ? "Chat with hauler" : `Chat with buyer (${order.buyer.name})`}
+            />
+          )}
+          {(viewerRole === "SELLER" || viewerRole === "HAULER" || viewerRole === "ADMIN") && (
+            <HaulerChatPanel
+              orderId={order.id}
+              chatRole="HAULER_TO_SELLER"
+              viewerId={viewerUserId}
+              title={viewerRole === "SELLER" ? "Chat with hauler" : `Chat with seller (${order.seller.name})`}
+            />
+          )}
+        </div>
       )}
 
       {/* FEATURE 3 — Live Hauler Location Tracking + ETA: only for an

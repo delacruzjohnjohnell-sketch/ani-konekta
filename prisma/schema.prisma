@@ -163,6 +163,8 @@ model User {
   conversationsAsBuyer      Conversation[]             @relation("ConversationBuyer")
   conversationsAsSeller     Conversation[]             @relation("ConversationSeller")
   messagesSent              Message[]
+  haulerMessagesSent        HaulerMessage[]            @relation("HaulerMessageSender")
+  haulerMessagesReceived    HaulerMessage[]            @relation("HaulerMessageRecipient")
   smsMessages               SmsMessage[]
 }
 
@@ -253,6 +255,7 @@ model Order {
   walletTransactions     WalletTransaction[]
   escrowEvents           EscrowEvent[]
   disputeReleaseRequests DisputeReleaseRequest[]
+  haulerMessages         HaulerMessage[]
 
   // --- Commission & fee engine snapshot (Feature: Configurable Commission
   // & Fee Engine). Computed once at order-creation time from whichever
@@ -534,4 +537,29 @@ model DisputeReleaseRequest {
   status     DisputeApprovalStatus  @default(PENDING)
   createdAt  DateTime               @default(now())
   decidedAt  DateTime?
+}
+
+// --- FEATURE 4 — In-App Chat (Hauler <-> Seller, Hauler <-> Buyer) --------
+// Deliberately separate from the existing Buyer<->Seller Conversation/
+// Message models above (Phase 8 chat) rather than repurposing them — those
+// are hard-keyed to exactly (buyerId, sellerId), which can't represent a
+// hauler-in-the-middle thread without risking that already-shipped feature.
+// Scoped per-order (not per-route): a route can carry multiple sellers, so
+// per-order keeps each thread unambiguous. Two threads exist per order once
+// pooled — Hauler<->Buyer and Hauler<->Seller — distinguished by which two
+// users a message is between (sender/recipient), not by a separate
+// "thread id": src/lib/hauler-messaging.ts queries by
+// (orderId, {senderId, recipientId} pair).
+model HaulerMessage {
+  id          String    @id @default(cuid())
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id])
+  senderId    String
+  sender      User      @relation("HaulerMessageSender", fields: [senderId], references: [id])
+  senderRole  Role
+  recipientId String
+  recipient   User      @relation("HaulerMessageRecipient", fields: [recipientId], references: [id])
+  body        String
+  createdAt   DateTime  @default(now())
+  readAt      DateTime?
 }
