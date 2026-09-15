@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { formatPeso, ORDER_STATUS_LABELS, ROUTE_STATUS_LABELS } from "@/lib/utils";
 import { confirmDelivery, flagDispute, submitRating } from "@/app/actions";
 import { startConversation } from "@/app/messages/actions";
+import { RouteMapLoader } from "@/components/order/route-map-loader";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
 import { StarRatingDisplay, StarRatingInput } from "@/components/ui/star-rating";
 import type { Order, Listing, User, ProofOfDelivery, PooledRoute, Rating } from "@prisma/client";
@@ -210,6 +211,30 @@ export function OrderDetailView({
           </CardContent>
         </Card>
       )}
+
+      {/* FEATURE 3 — Live Hauler Location Tracking + ETA: only for an
+          active leg (POOLED/IN_TRANSIT — matches the spec's "for an order
+          that is POOLED/IN_TRANSIT"), and only to the buyer/seller/admin on
+          this specific order (route-map-loader polls a GET endpoint that
+          itself re-checks this server-side — this client-side gate is just
+          "don't bother rendering it," not the actual privacy boundary). */}
+      {order.route &&
+        (order.status === "POOLED" || order.status === "IN_TRANSIT") &&
+        (viewerRole === "BUYER" || viewerRole === "SELLER" || viewerRole === "ADMIN") && (
+          <Card className="overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-brand-green-500 to-brand-green-800" />
+            <CardHeader>
+              <CardTitle>Live tracking</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <RouteMapLoader
+                routeId={order.route.id}
+                pickupPoints={order.route.pickupPoints}
+                dropoffPoint={order.route.dropoffPoint}
+              />
+            </CardContent>
+          </Card>
+        )}
 
       {order.proofOfDelivery && order.status !== "SETTLED" && viewerRole === "BUYER" && (
         <Card>

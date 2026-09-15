@@ -12,6 +12,7 @@ import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/
 import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
 import { VerificationStatusCard } from "@/components/verification/verification-status-card";
+import { LocationPingSender } from "@/components/hauler/location-ping-sender";
 
 // Maps each RouteStatus to the ACTION that advances it, and which of the 3
 // user-facing steps (Pickup / In Transit / Delivered) it belongs to. The
@@ -313,6 +314,10 @@ export default async function HaulerDashboard({
                     {cropTypes} · {totalLoad} kg
                     {r.distanceKm != null && ` · ${r.distanceKm} km`}
                   </p>
+
+                  {(r.status === "PICKED_UP" || r.status === "IN_TRANSIT") && (
+                    <LocationPingSender routeId={r.id} />
+                  )}
 
                   {/* 3-step progress */}
                   <div className="flex items-center gap-1">

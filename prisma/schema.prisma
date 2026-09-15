@@ -312,6 +312,18 @@ model PooledRoute {
   etaMinutes   Int?
   distanceKm   Float?
   createdAt    DateTime    @default(now())
+
+  // FEATURE 3 — Live Hauler Location Tracking. A single "current position"
+  // field, not a ping-history table (explicitly a "nice-to-have" in the
+  // spec, trimmed for MVP scope — flagged, not silently dropped). Written
+  // by POST /api/routes/[id]/location (the assigned hauler only, while
+  // status is PICKED_UP/IN_TRANSIT); read by the buyer/seller/admin order
+  // page via GET on the same route. lastPingAt drives the "stale location"
+  // (10-min threshold, per confirmed default) and "Last updated Xs/min ago"
+  // display.
+  currentLat Float?
+  currentLng Float?
+  lastPingAt DateTime?
 }
 
 model ProofOfDelivery {
