@@ -28,14 +28,14 @@ export async function Navbar() {
   return (
     <header className="sticky top-0 z-20 border-b border-black/10 bg-white/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/" className="flex shrink-0 items-center gap-2">
           <Image src="/logo.png" alt="ANI-KONEKTA" width={36} height={31} className="h-9 w-auto" priority />
-          <span className="font-bold text-neutral-900">
+          <span className="hidden whitespace-nowrap font-bold text-neutral-900 sm:inline">
             ANI-<span className="text-brand-green-700">KONEKTA</span>
           </span>
         </Link>
 
-        <nav className="flex items-center gap-3">
+        <nav className="flex items-center gap-2 sm:gap-3">
           {session?.user ? (
             <>
               <Link

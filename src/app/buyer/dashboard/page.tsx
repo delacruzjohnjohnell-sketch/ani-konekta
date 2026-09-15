@@ -191,7 +191,7 @@ export default async function BuyerDashboard({
       {featured.length > 0 && (
         <div>
           <h2 className="mb-3 text-lg font-bold text-neutral-900">{t("buyer.featured.title", locale)}</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {featured.map(({ listing, label }) => (
               <ListingCard key={listing.id} listing={toCardData(listing, label)} />
             ))}
@@ -296,7 +296,7 @@ export default async function BuyerDashboard({
           {sorted.length === 0 ? (
             <p className="text-sm text-neutral-500">{t("buyer.listing.noListings", locale)}</p>
           ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
               {sorted.map((l) => (
                 <ListingCard key={l.id} listing={toCardData(l)} />
               ))}

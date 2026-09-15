@@ -3,6 +3,7 @@
 import { useCart } from "@/lib/cart/cart-context";
 import { checkoutCart, type CheckoutCartState } from "@/app/actions";
 import { useActionState, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatPeso } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +35,13 @@ export function CartDrawer({
   const estLogisticsFee = (subtotal * PREVIEW_LOGISTICS_FEE_PERCENT) / 100;
   const estGrandTotal = subtotal + estLogisticsFee;
 
-  return (
+  // Rendered via a portal straight into <body> — nested inside the navbar's
+  // backdrop-blur header otherwise, and `backdrop-filter` (like `filter`)
+  // creates a new CSS containing block for `position: fixed` descendants,
+  // so this drawer was sizing itself to the ~64px header instead of the
+  // full screen (found while checking mobile layout — reproduces at every
+  // viewport width, not mobile-specific).
+  return createPortal(
     <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
       <div
         className="flex h-full w-full max-w-md flex-col bg-white shadow-xl"
@@ -170,6 +177,7 @@ export function CartDrawer({
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
