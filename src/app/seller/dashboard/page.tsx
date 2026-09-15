@@ -16,6 +16,7 @@ import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/
 import { resolvePhotoUrl } from "@/lib/blob-storage";
 import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
+import { VerificationStatusCard } from "@/components/verification/verification-status-card";
 import Link from "next/link";
 
 const MUNICIPALITIES = [
@@ -98,6 +99,8 @@ export default async function SellerDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
         <Card className="lg:col-span-2">

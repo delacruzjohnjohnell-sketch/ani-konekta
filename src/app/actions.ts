@@ -15,7 +15,10 @@ import type { ActionState } from "@/components/ui/action-form";
 import { createEscrowedOrderForLines } from "@/lib/order-fulfillment";
 import { StockUnavailableError } from "@/lib/listing-stock";
 
-async function requireUser(role?: string) {
+// Exported so the new verification/wallet/messaging/sms server actions
+// (src/app/{verification,wallet,messages,sms,admin/*}/actions.ts) can reuse
+// the exact same auth-gating helper instead of duplicating it.
+export async function requireUser(role?: string) {
   const session = await auth();
   if (!session?.user) throw new Error("Not signed in.");
   if (role && session.user.role !== role) throw new Error("Not authorized.");

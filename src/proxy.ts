@@ -3,12 +3,20 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 // Next.js 16 renamed middleware.js -> proxy.js (same runtime behavior).
-// Role-based route protection for /seller, /buyer, /hauler, /admin.
-const ROLE_PREFIXES: Record<string, string> = {
-  "/seller": "SELLER",
-  "/buyer": "BUYER",
-  "/hauler": "HAULER",
-  "/admin": "ADMIN",
+// Role-based route protection for /seller, /buyer, /hauler, /admin, /messages.
+// Values are arrays (not a single role) so a route usable by more than one
+// role — like /messages, shared by BUYER and SELLER — can be expressed
+// without a separate gating mechanism. Routes usable by ANY logged-in role
+// (e.g. /wallet, /sms, /verification, /sellers/[id]) are intentionally left
+// out of this map and out of config.matcher below — they rely on an
+// in-page/in-action auth() or requireUser() check instead, since "any role"
+// doesn't need a role-prefix check at all, just "is signed in."
+const ROLE_PREFIXES: Record<string, string[]> = {
+  "/seller": ["SELLER"],
+  "/buyer": ["BUYER"],
+  "/hauler": ["HAULER"],
+  "/admin": ["ADMIN"],
+  "/messages": ["BUYER", "SELLER"],
 };
 
 export default async function proxy(request: NextRequest) {
@@ -42,8 +50,8 @@ export default async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const requiredRole = ROLE_PREFIXES[matchedPrefix];
-  if (token.role !== requiredRole) {
+  const requiredRoles = ROLE_PREFIXES[matchedPrefix];
+  if (!requiredRoles.includes(token.role as string)) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
@@ -51,5 +59,11 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/seller/:path*", "/buyer/:path*", "/hauler/:path*", "/admin/:path*"],
+  matcher: [
+    "/seller/:path*",
+    "/buyer/:path*",
+    "/hauler/:path*",
+    "/admin/:path*",
+    "/messages/:path*",
+  ],
 };

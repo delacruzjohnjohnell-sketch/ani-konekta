@@ -69,37 +69,79 @@ enum ReputationEventType {
   RESOLVED
 }
 
+// --- Additive features: ID verification, KYC, chat, SMS, ANI-Wallet ---
+enum IdVerificationStatus {
+  NOT_VERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum KycStatus {
+  NOT_VERIFIED
+  VISIT_SCHEDULED
+  UNDER_REVIEW
+  KYC_VERIFIED
+  REJECTED
+}
+
+enum SmsDirection {
+  IN
+  OUT
+}
+
+enum WalletTransactionType {
+  TOP_UP
+  WITHDRAWAL
+  HOLD
+  RELEASE
+  REFUND
+}
+
 model User {
-  id             String   @id @default(cuid())
-  name           String
-  role           Role
-  phone          String   @unique
-  email          String?  @unique
-  passwordHash   String
+  id              String   @id @default(cuid())
+  name            String
+  role            Role
+  phone           String   @unique
+  email           String?  @unique
+  passwordHash    String
   // DEPRECATED — replaced by the 5-star rating system below (ratingSum /
   // ratingCount + the Rating model). Column kept (not dropped) so no data
   // migration is required; nothing in the UI reads or writes it anymore.
-  reputationScore Int     @default(100)
+  reputationScore Int      @default(100)
   // Denormalized rating counters, updated transactionally in
   // src/app/actions.ts#submitRating whenever a new Rating row is created
   // for this user (as the ratee). Average = ratingSum / ratingCount.
   // Kept denormalized (rather than aggregating Rating rows on every
   // dashboard render) the same way reputationScore was.
-  ratingSum      Int      @default(0)
-  ratingCount    Int      @default(0)
-  municipality   String?
-  createdAt      DateTime @default(now())
+  ratingSum       Int      @default(0)
+  ratingCount     Int      @default(0)
+  municipality    String?
+  createdAt       DateTime @default(now())
 
-  cooperativeId  String?
-  cooperative    Cooperative? @relation(fields: [cooperativeId], references: [id])
+  cooperativeId String?
+  cooperative   Cooperative? @relation(fields: [cooperativeId], references: [id])
 
-  listings       Listing[]      @relation("SellerListings")
-  buyerOrders    Order[]        @relation("BuyerOrders")
-  sellerOrders   Order[]        @relation("SellerOrders")
-  haulerRoutes   PooledRoute[]  @relation("HaulerRoutes")
+  listings         Listing[]         @relation("SellerListings")
+  buyerOrders      Order[]           @relation("BuyerOrders")
+  sellerOrders     Order[]           @relation("SellerOrders")
+  haulerRoutes     PooledRoute[]     @relation("HaulerRoutes")
   reputationEvents ReputationEvent[]
-  ratingsGiven     Rating[]     @relation("RatingsGiven")
-  ratingsReceived  Rating[]     @relation("RatingsReceived")
+  ratingsGiven     Rating[]          @relation("RatingsGiven")
+  ratingsReceived  Rating[]          @relation("RatingsReceived")
+
+  // Denormalized current-status fields (same pattern as ratingSum/ratingCount
+  // above) — fast to read on every marketplace card with zero extra joins.
+  // Detail history lives in IdVerificationSubmission / KycVisit below.
+  idVerificationStatus      IdVerificationStatus       @default(NOT_VERIFIED)
+  kycStatus                 KycStatus                  @default(NOT_VERIFIED)
+  idVerificationSubmissions IdVerificationSubmission[]
+  kycVisits                 KycVisit[]
+  wallet                    Wallet?
+  conversationsAsBuyer      Conversation[]             @relation("ConversationBuyer")
+  conversationsAsSeller     Conversation[]             @relation("ConversationSeller")
+  messagesSent              Message[]
+  smsMessages               SmsMessage[]
 }
 
 model Cooperative {
@@ -111,18 +153,18 @@ model Cooperative {
 }
 
 model Listing {
-  id                  String        @id @default(cuid())
-  sellerId            String
-  seller              User          @relation("SellerListings", fields: [sellerId], references: [id])
-  cropType            String
-  variety             String?
-  volumeKg            Float
-  harvestDate         DateTime
-  askingPricePerKg     Float
+  id                    String        @id @default(cuid())
+  sellerId              String
+  seller                User          @relation("SellerListings", fields: [sellerId], references: [id])
+  cropType              String
+  variety               String?
+  volumeKg              Float
+  harvestDate           DateTime
+  askingPricePerKg      Float
   aiSuggestedPricePerKg Float
-  qualityTag          QualityTag    @default(STANDARD)
-  municipality        String
-  status              ListingStatus @default(ACTIVE)
+  qualityTag            QualityTag    @default(STANDARD)
+  municipality          String
+  status                ListingStatus @default(ACTIVE)
   // Renamed from `photoUrl` (Feature: direct file attachment, never a pasted
   // URL). Column name kept via @map so existing data isn't moved — this
   // stores the Vercel Blob storage identifier returned by our own upload
@@ -130,17 +172,17 @@ model Listing {
   // Any pre-migration row that still holds a raw http(s) URL here was
   // entered before this feature existed — see
   // prisma/report-legacy-photo-urls.ts to find and re-upload those.
-  photoBlobKey        String?       @map("photoUrl")
-  createdAt           DateTime      @default(now())
+  photoBlobKey          String?       @map("photoUrl")
+  createdAt             DateTime      @default(now())
 
   // Optional seller-set floor on how small a single order/cart line can be
   // against this listing. Null = no minimum (buyers may order any amount up
   // to available volumeKg). See src/lib/listing-stock.ts.
-  minOrderQtyKg       Float?
+  minOrderQtyKg Float?
   // Optional free-text seller description shown on the buyer marketplace card.
-  description         String?
+  description   String?
 
-  orders              Order[]
+  orders Order[]
 }
 
 model Order {
@@ -162,12 +204,14 @@ model Order {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  routeId          String?
-  route            PooledRoute? @relation(fields: [routeId], references: [id])
+  routeId String?
+  route   PooledRoute? @relation(fields: [routeId], references: [id])
 
-  proofOfDelivery  ProofOfDelivery?
-  reputationEvents ReputationEvent[]
-  ratings          Rating[]
+  proofOfDelivery    ProofOfDelivery?
+  reputationEvents   ReputationEvent[]
+  ratings            Rating[]
+  conversations      Conversation[]
+  walletTransactions WalletTransaction[]
 
   // --- Commission & fee engine snapshot (Feature: Configurable Commission
   // & Fee Engine). Computed once at order-creation time from whichever
@@ -213,20 +257,20 @@ model CommissionConfig {
   createdBy                         String?
   createdAt                         DateTime  @default(now())
 
-  orders                            Order[]
+  orders Order[]
 }
 
 model PooledRoute {
-  id            String      @id @default(cuid())
-  haulerId      String
-  hauler        User        @relation("HaulerRoutes", fields: [haulerId], references: [id])
-  orders        Order[]
-  pickupPoints  String[]
-  dropoffPoint  String
-  status        RouteStatus @default(ASSIGNED)
-  etaMinutes    Int?
-  distanceKm    Float?
-  createdAt     DateTime    @default(now())
+  id           String      @id @default(cuid())
+  haulerId     String
+  hauler       User        @relation("HaulerRoutes", fields: [haulerId], references: [id])
+  orders       Order[]
+  pickupPoints String[]
+  dropoffPoint String
+  status       RouteStatus @default(ASSIGNED)
+  etaMinutes   Int?
+  distanceKm   Float?
+  createdAt    DateTime    @default(now())
 }
 
 model ProofOfDelivery {
@@ -242,15 +286,15 @@ model ProofOfDelivery {
 }
 
 model ReputationEvent {
-  id      String              @id @default(cuid())
-  userId  String
-  user    User                @relation(fields: [userId], references: [id])
-  orderId String?
-  order   Order?              @relation(fields: [orderId], references: [id])
-  type    ReputationEventType
-  delta   Int
-  note    String?
-  createdAt DateTime @default(now())
+  id        String              @id @default(cuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id])
+  orderId   String?
+  order     Order?              @relation(fields: [orderId], references: [id])
+  type      ReputationEventType
+  delta     Int
+  note      String?
+  createdAt DateTime            @default(now())
 }
 
 // Feature: 5-star rating system, replacing the old points-based
@@ -283,4 +327,120 @@ model PriceTrend {
   municipality  String
   avgPricePerKg Float
   recordedAt    DateTime
+}
+
+// --- ID Verification --------------------------------------------------
+// One row per submission attempt (a user may be REJECTED and resubmit).
+// User.idVerificationStatus is the fast denormalized "current" read;
+// this table is the detail/audit log — same shape as Rating vs.
+// User.ratingSum/ratingCount above.
+model IdVerificationSubmission {
+  id               String               @id @default(cuid())
+  userId           String
+  user             User                 @relation(fields: [userId], references: [id])
+  status           IdVerificationStatus @default(PENDING)
+  // Vercel Blob keys (see src/lib/blob-storage.ts) — never rendered as a
+  // raw URL to anyone but the owner/ADMIN; always served through
+  // src/app/api/secure-doc/[docType]/[docId]/route.ts.
+  documentBlobKeys String[]
+  note             String?
+  reviewedBy       String?
+  reviewNote       String?
+  createdAt        DateTime             @default(now())
+  reviewedAt       DateTime?
+}
+
+// --- KYC / physical verification ---------------------------------------
+// One row per field-visit attempt. User.kycStatus is the fast denormalized
+// "current" read, updated alongside each visit's status transition.
+model KycVisit {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id])
+  status           KycStatus @default(VISIT_SCHEDULED)
+  visitDate        DateTime?
+  verifierName     String?
+  verifierUserId   String?
+  notes            String?
+  evidenceBlobKeys String[]
+  scheduledBy      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+// --- Buyer <-> Seller chat -----------------------------------------------
+// Keyed by (buyerId, sellerId, orderId) — orderId is null for the general
+// pre-order/listing-inquiry thread, and set for an order-scoped thread
+// created lazily on first order-context message. Postgres treats multiple
+// NULLs in a unique index as distinct, so "one general thread per pair" is
+// enforced in application code (getOrCreateConversation), not by the DB.
+model Conversation {
+  id               String    @id @default(cuid())
+  buyerId          String
+  buyer            User      @relation("ConversationBuyer", fields: [buyerId], references: [id])
+  sellerId         String
+  seller           User      @relation("ConversationSeller", fields: [sellerId], references: [id])
+  orderId          String?
+  order            Order?    @relation(fields: [orderId], references: [id])
+  buyerLastReadAt  DateTime?
+  sellerLastReadAt DateTime?
+  createdAt        DateTime  @default(now())
+  messages         Message[]
+
+  @@unique([buyerId, sellerId, orderId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  body           String
+  createdAt      DateTime     @default(now())
+}
+
+// --- SMS scaffold ---------------------------------------------------------
+// Outbound sending already exists (src/lib/notifications.ts#sendSms); this
+// is the log of every inbound/outbound SMS-equivalent message, real or
+// simulated (see src/app/sms — no telco gateway is connected yet).
+model SmsMessage {
+  id            String       @id @default(cuid())
+  direction     SmsDirection
+  phone         String
+  body          String
+  parsedCommand String?
+  parsedResult  String?
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id])
+  createdAt     DateTime     @default(now())
+}
+
+// --- ANI-Wallet (buyer-only prototype) -----------------------------------
+// A real-feeling buyer-side balance ledger sitting in front of the
+// already-mocked src/lib/payments.ts — no real money moves either way.
+// "Protected" = held against an in-flight order (mirrors Order.escrowStatus
+// HELD); "Pending" is reserved for a future async top-up/withdrawal flow.
+model Wallet {
+  id                  String              @id @default(cuid())
+  userId              String              @unique
+  user                User                @relation(fields: [userId], references: [id])
+  availableBalancePHP Float               @default(0)
+  protectedBalancePHP Float               @default(0)
+  pendingBalancePHP   Float               @default(0)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  transactions        WalletTransaction[]
+}
+
+model WalletTransaction {
+  id        String                @id @default(cuid())
+  walletId  String
+  wallet    Wallet                @relation(fields: [walletId], references: [id])
+  type      WalletTransactionType
+  amountPHP Float
+  orderId   String?
+  order     Order?                @relation(fields: [orderId], references: [id])
+  note      String?
+  createdAt DateTime              @default(now())
 }

@@ -55,9 +55,17 @@ export default async function AdminPage() {
           <h1 className="text-2xl font-bold text-neutral-900">Admin overview</h1>
           <p className="text-neutral-600">Order pipeline, disputes, and the escrow ledger.</p>
         </div>
-        <Link href="/admin/commission">
-          <Button variant="outline">Manage commission rules →</Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/admin/verification">
+            <Button variant="outline">ID Verification →</Button>
+          </Link>
+          <Link href="/admin/kyc">
+            <Button variant="outline">KYC Visits →</Button>
+          </Link>
+          <Link href="/admin/commission">
+            <Button variant="outline">Manage commission rules →</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">

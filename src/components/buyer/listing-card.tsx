@@ -10,6 +10,7 @@ import { StarRatingDisplay } from "@/components/ui/star-rating";
 import { formatPeso } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import type { SellerBadge } from "@/lib/seller-badges";
+import type { PublicVerificationBadge } from "@/lib/verification-badge";
 
 export type ListingCardData = {
   id: string;
@@ -25,9 +26,21 @@ export type ListingCardData = {
   sellerName: string;
   sellerRatingSum: number;
   sellerRatingCount: number;
+  sellerVerification: PublicVerificationBadge;
   badges: SellerBadge[];
   featuredLabel?: "recommended" | "bestValue" | "freshHarvest" | "popular";
   bulkMatchFormId?: string;
+};
+
+const VERIFICATION_LABEL_KEY: Record<PublicVerificationBadge, string> = {
+  KYC_VERIFIED: "buyer.verification.kycVerified",
+  PENDING: "buyer.verification.pending",
+  NOT_VERIFIED: "buyer.verification.notVerified",
+};
+const VERIFICATION_TONE: Record<PublicVerificationBadge, "green" | "gold" | "gray"> = {
+  KYC_VERIFIED: "green",
+  PENDING: "gold",
+  NOT_VERIFIED: "gray",
 };
 
 const BADGE_LABEL_KEY: Record<SellerBadge, string> = {
@@ -115,8 +128,11 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
         <p className="text-xs text-neutral-500">
           {t("buyer.listing.seller")}: {listing.sellerName} · {listing.municipality}
         </p>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <StarRatingDisplay sum={listing.sellerRatingSum} count={listing.sellerRatingCount} size="sm" />
+          <Badge tone={VERIFICATION_TONE[listing.sellerVerification]} className="text-[10px]">
+            {t(VERIFICATION_LABEL_KEY[listing.sellerVerification])}
+          </Badge>
         </div>
         <p className="text-lg font-bold text-brand-green-700">
           {formatPeso(listing.askingPricePerKg)}

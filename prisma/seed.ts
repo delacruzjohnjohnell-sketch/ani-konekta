@@ -16,6 +16,8 @@ const DEMO_PASSWORD = "password123";
 async function main() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
 
+  // Seed sellers as already KYC_VERIFIED/VERIFIED so the new marketplace
+  // verification badge (Phase 7) has something real to show immediately.
   const [seller1, seller2, seller3] = await Promise.all([
     upsertUser({
       name: "Mang Ernesto Santos",
@@ -24,6 +26,8 @@ async function main() {
       email: "seller1@anikonekta.demo",
       municipality: "Talavera",
       passwordHash,
+      idVerificationStatus: "VERIFIED",
+      kycStatus: "KYC_VERIFIED",
     }),
     upsertUser({
       name: "Nueva Ecija Rice Farmers Coop",
@@ -32,6 +36,8 @@ async function main() {
       email: "seller2@anikonekta.demo",
       municipality: "Guimba",
       passwordHash,
+      idVerificationStatus: "VERIFIED",
+      kycStatus: "KYC_VERIFIED",
     }),
     upsertUser({
       name: "Aling Rosa Cruz",
@@ -40,10 +46,13 @@ async function main() {
       email: "seller3@anikonekta.demo",
       municipality: "Jaen",
       passwordHash,
+      // Left NOT_VERIFIED/NOT_VERIFIED (upsertUser's defaults) on purpose —
+      // gives the demo an example of both a verified and an unverified
+      // seller so the marketplace badge feature has both states to show.
     }),
   ]);
 
-  const [buyer1, buyer2] = await Promise.all([
+  const [buyer1, buyer2, buyer3] = await Promise.all([
     upsertUser({
       name: "Cabanatuan Wet Market Traders",
       role: "BUYER",
@@ -105,6 +114,14 @@ async function main() {
     municipality: "Cabanatuan City",
     passwordHash,
   });
+
+  // ANI-Wallet demo balances for the 3 seed buyers (idempotent, see
+  // seedWallet above — never resets an existing balance on reseed).
+  await Promise.all([
+    seedWallet(buyer1.id, 50000),
+    seedWallet(buyer2.id, 50000),
+    seedWallet(buyer3.id, 50000),
+  ]);
 
   // Commission & fee engine rules (idempotent — re-running seed won't
   // duplicate these). See src/lib/commission.ts for how rules are selected.
@@ -302,11 +319,22 @@ async function upsertUser(data: {
   email: string;
   municipality: string;
   passwordHash: string;
+  idVerificationStatus?: "NOT_VERIFIED" | "PENDING" | "VERIFIED" | "REJECTED";
+  kycStatus?: "NOT_VERIFIED" | "VISIT_SCHEDULED" | "UNDER_REVIEW" | "KYC_VERIFIED" | "REJECTED";
 }) {
   return prisma.user.upsert({
     where: { phone: data.phone },
     update: {},
     create: data,
+  });
+}
+
+/** Idempotent — never overwrites an existing balance on reseed. */
+async function seedWallet(userId: string, startingBalancePHP: number) {
+  const existing = await prisma.wallet.findUnique({ where: { userId } });
+  if (existing) return existing;
+  return prisma.wallet.create({
+    data: { userId, availableBalancePHP: startingBalancePHP },
   });
 }
 

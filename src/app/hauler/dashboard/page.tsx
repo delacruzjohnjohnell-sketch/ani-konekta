@@ -11,6 +11,7 @@ import { StarRatingDisplay } from "@/components/ui/star-rating";
 import { getActiveCommissionConfigs, selectApplicableCommissionConfig } from "@/lib/commission";
 import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
+import { VerificationStatusCard } from "@/components/verification/verification-status-card";
 
 // Maps each RouteStatus to the ACTION that advances it, and which of the 3
 // user-facing steps (Pickup / In Transit / Delivered) it belongs to. The
@@ -125,6 +126,8 @@ export default async function HaulerDashboard({
         </div>
         <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
       </div>
+
+      <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
 
       {/* Top stat cards — icon + big number, per spec */}
       <div className="grid grid-cols-3 gap-2">

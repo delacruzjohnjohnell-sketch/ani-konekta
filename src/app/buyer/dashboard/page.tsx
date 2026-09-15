@@ -13,6 +13,8 @@ import { ListingCard, type ListingCardData } from "@/components/buyer/listing-ca
 import { computeSellerBadges } from "@/lib/seller-badges";
 import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
+import { VerificationStatusCard } from "@/components/verification/verification-status-card";
+import { getPublicVerificationBadge } from "@/lib/verification-badge";
 
 const MUNICIPALITIES = [
   "Cabanatuan City",
@@ -141,6 +143,7 @@ export default async function BuyerDashboard({
       sellerName: l.seller.name,
       sellerRatingSum: l.seller.ratingSum,
       sellerRatingCount: l.seller.ratingCount,
+      sellerVerification: getPublicVerificationBadge(l.seller),
       badges: stats?.badges ?? [],
       featuredLabel,
       bulkMatchFormId: sorted.length >= 2 ? "bulk-match-form" : undefined,
@@ -179,6 +182,8 @@ export default async function BuyerDashboard({
           <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
         </div>
       </div>
+
+      <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
 
       {featured.length > 0 && (
         <div>
