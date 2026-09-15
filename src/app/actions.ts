@@ -14,6 +14,12 @@ import { t } from "@/lib/i18n";
 import type { ActionState } from "@/components/ui/action-form";
 import { createEscrowedOrderForLines } from "@/lib/order-fulfillment";
 import { StockUnavailableError } from "@/lib/listing-stock";
+import {
+  getOrCreateWallet,
+  walletHoldForOrder,
+  walletReleaseForOrder,
+  InsufficientWalletBalanceError,
+} from "@/lib/wallet";
 
 // Exported so the new verification/wallet/messaging/sms server actions
 // (src/app/{verification,wallet,messages,sms,admin/*}/actions.ts) can reuse
@@ -307,6 +313,7 @@ export async function checkoutCart(
   const locale = await getLocale();
   const user = await requireUser("BUYER");
   const cartJson = String(formData.get("cartJson") ?? "[]");
+  const fundingSource = String(formData.get("fundingSource") ?? "ESCROW");
 
   let requestedLines: CheckoutCartLine[];
   try {
@@ -344,6 +351,23 @@ export async function checkoutCart(
     }
   }
 
+  // If paying with ANI-Wallet, fail fast on an obviously-short balance before
+  // creating any orders — a conservative check against the pre-fee subtotal
+  // (the same subtotal shown in the cart drawer's own estimate). The exact
+  // grand total (incl. logistics fee) is only known per-seller once
+  // createEscrowedOrderForLines snapshots the commission, so the real,
+  // authoritative check happens per-order below via walletHoldForOrder.
+  if (fundingSource === "WALLET") {
+    const subtotal = requestedLines.reduce((s, l) => {
+      const listing = listingById.get(l.listingId)!;
+      return s + l.qtyKg * listing.askingPricePerKg;
+    }, 0);
+    const wallet = await getOrCreateWallet(user.id);
+    if (wallet.availableBalancePHP < subtotal) {
+      return { error: t("wallet.error.insufficientFunds", locale) };
+    }
+  }
+
   // Group by seller — Order.sellerId is single, so a multi-seller cart
   // becomes one Order per seller (same convention as bulkMatchOrder).
   const bySeller = new Map<string, typeof requestedLines>();
@@ -373,10 +397,21 @@ export async function checkoutCart(
         decrementStock: true, // partial-quantity purchase
       });
       orderIds.push(order.id);
+
+      if (fundingSource === "WALLET") {
+        const grandTotal =
+          order.totalAmount + (order.logisticsFeeAmountPHP ?? 0);
+        await prisma.$transaction((tx) =>
+          walletHoldForOrder(tx, user.id, order.id, grandTotal)
+        );
+      }
     }
   } catch (err) {
     if (err instanceof StockUnavailableError) {
       return { error: err.message };
+    }
+    if (err instanceof InsufficientWalletBalanceError) {
+      return { error: t("wallet.error.insufficientFunds", locale) };
     }
     throw err;
   }
@@ -571,6 +606,10 @@ export async function confirmDelivery(formData: FormData) {
     where: { orderId: order.id },
     data: { confirmedByBuyer: true },
   });
+
+  // No-op unless this order was funded via ANI-Wallet at checkout (looks up
+  // its own HOLD transaction by orderId — see src/lib/wallet.ts).
+  await prisma.$transaction((tx) => walletReleaseForOrder(tx, order.id));
 
   await prisma.reputationEvent.create({
     data: { userId: order.sellerId, orderId: order.id, type: "ON_TIME", delta: 5 },

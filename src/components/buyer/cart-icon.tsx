@@ -10,7 +10,7 @@ import { useT } from "@/lib/i18n/client";
  * component (and the drawer it opens) needs useCart(), so the rest of the
  * nav stays a server component.
  */
-export function CartIcon() {
+export function CartIcon({ walletBalancePHP }: { walletBalancePHP: number }) {
   const { itemCount } = useCart();
   const [open, setOpen] = useState(false);
   const t = useT();
@@ -34,7 +34,9 @@ export function CartIcon() {
           </span>
         )}
       </button>
-      {open && <CartDrawer onClose={() => setOpen(false)} />}
+      {open && (
+        <CartDrawer onClose={() => setOpen(false)} walletBalancePHP={walletBalancePHP} />
+      )}
     </>
   );
 }

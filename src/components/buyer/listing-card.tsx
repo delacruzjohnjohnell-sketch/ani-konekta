@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useCart } from "@/lib/cart/cart-context";
 import { placeOrder } from "@/app/actions";
+import { startConversation } from "@/app/messages/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,6 +163,13 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
           <input type="hidden" name="listingId" value={listing.id} />
           <Button type="submit" size="sm" className="w-full">
             {t("buyer.listing.orderTotal", { total: formatPeso(total) })}
+          </Button>
+        </form>
+
+        <form action={startConversation} className="mt-1">
+          <input type="hidden" name="counterpartId" value={listing.sellerId} />
+          <Button type="submit" variant="ghost" size="sm" className="w-full">
+            {t("messages.messageSeller")}
           </Button>
         </form>
       </div>

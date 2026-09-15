@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPeso, ORDER_STATUS_LABELS, ROUTE_STATUS_LABELS } from "@/lib/utils";
 import { confirmDelivery, flagDispute, submitRating } from "@/app/actions";
+import { startConversation } from "@/app/messages/actions";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
 import { StarRatingDisplay, StarRatingInput } from "@/components/ui/star-rating";
 import type { Order, Listing, User, ProofOfDelivery, PooledRoute, Rating } from "@prisma/client";
@@ -43,9 +44,24 @@ export function OrderDetailView({
             {order.buyer.name}
           </p>
         </div>
-        <Badge tone={order.status === "SETTLED" ? "green" : "gold"}>
-          {ORDER_STATUS_LABELS[order.status] ?? order.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone={order.status === "SETTLED" ? "green" : "gold"}>
+            {ORDER_STATUS_LABELS[order.status] ?? order.status}
+          </Badge>
+          {(viewerRole === "BUYER" || viewerRole === "SELLER") && (
+            <form action={startConversation}>
+              <input
+                type="hidden"
+                name="counterpartId"
+                value={viewerRole === "BUYER" ? order.sellerId : order.buyerId}
+              />
+              <input type="hidden" name="orderId" value={order.id} />
+              <Button type="submit" variant="outline" size="sm">
+                Message
+              </Button>
+            </form>
+          )}
+        </div>
       </div>
 
       <Card className="overflow-hidden">

@@ -2,7 +2,7 @@
 
 import { useCart } from "@/lib/cart/cart-context";
 import { checkoutCart, type CheckoutCartState } from "@/app/actions";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { formatPeso } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,9 +11,16 @@ import { useT } from "@/lib/i18n/client";
 
 const PREVIEW_LOGISTICS_FEE_PERCENT = 2; // matches the platform default rate; real fee is locked in server-side at checkout
 
-export function CartDrawer({ onClose }: { onClose: () => void }) {
+export function CartDrawer({
+  onClose,
+  walletBalancePHP,
+}: {
+  onClose: () => void;
+  walletBalancePHP: number;
+}) {
   const { lines, updateQty, removeItem, clear } = useCart();
   const t = useT();
+  const [fundingSource, setFundingSource] = useState<"ESCROW" | "WALLET">("ESCROW");
   const [state, formAction] = useActionState<CheckoutCartState, FormData>(
     checkoutCart,
     null
@@ -114,6 +121,33 @@ export function CartDrawer({ onClose }: { onClose: () => void }) {
                 {state.error}
               </div>
             )}
+            <input type="hidden" name="fundingSource" value={fundingSource} />
+            <div className="mb-3 space-y-1.5">
+              <p className="text-xs font-medium text-neutral-600">{t("cart.fundingSource")}</p>
+              <label className="flex items-center gap-2 text-sm text-neutral-700">
+                <input
+                  type="radio"
+                  name="fundingSourceChoice"
+                  checked={fundingSource === "ESCROW"}
+                  onChange={() => setFundingSource("ESCROW")}
+                />
+                {t("cart.fundingSource.escrow")}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-neutral-700">
+                <input
+                  type="radio"
+                  name="fundingSourceChoice"
+                  checked={fundingSource === "WALLET"}
+                  onChange={() => setFundingSource("WALLET")}
+                />
+                {t("cart.fundingSource.wallet")}
+              </label>
+              {fundingSource === "WALLET" && (
+                <p className="pl-6 text-xs text-neutral-500">
+                  {t("cart.fundingSource.walletBalance", { balance: formatPeso(walletBalancePHP) })}
+                </p>
+              )}
+            </div>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between text-neutral-600">
                 <span>{t("cart.subtotal")}</span>
