@@ -5,6 +5,7 @@ import { editListing } from "@/app/actions";
 import { ActionForm } from "@/components/ui/action-form";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { PhotoUpload } from "@/components/ui/photo-upload";
+import { CommodityFields } from "@/components/listing/commodity-fields";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { useT } from "@/lib/i18n/client";
@@ -21,6 +22,13 @@ type EditableListing = {
   minOrderQtyKg: number | null;
   description: string | null;
   requiresColdChain: boolean;
+  cropCategory: "GRAIN" | "VEGETABLE" | "FRUIT" | null;
+  isGrainWet: boolean | null;
+  moistureContentPercent: number | null;
+  grainGrade: string | null;
+  produceClass: string | null;
+  packagingType: string | null;
+  harvestTimestamp: Date | null;
 };
 
 /**
@@ -135,6 +143,19 @@ export function EditListingForm({
                 />
               </div>
             </div>
+            <CommodityFields
+              idPrefix={`edit-${listing.id}`}
+              defaults={{
+                cropCategory: listing.cropCategory,
+                isGrainWet: listing.isGrainWet,
+                moistureContentPercent: listing.moistureContentPercent,
+                grainGrade: listing.grainGrade,
+                produceClass: listing.produceClass,
+                packagingType: listing.packagingType,
+                // datetime-local expects local "YYYY-MM-DDTHH:mm"
+                harvestTimestamp: listing.harvestTimestamp ? listing.harvestTimestamp.toISOString().slice(0, 16) : null,
+              }}
+            />
             <div className="flex items-start gap-2 rounded-lg border border-black/10 bg-white p-3">
               <input
                 id={`requiresColdChain-${listing.id}`}

@@ -10,7 +10,10 @@ import { RouteMapLoader } from "@/components/order/route-map-loader";
 import { HaulerChatPanel } from "@/components/order/hauler-chat-panel";
 import { resolvePhotoUrl } from "@/lib/blob-storage";
 import { StarRatingDisplay, StarRatingInput } from "@/components/ui/star-rating";
-import type { Order, Listing, User, ProofOfDelivery, PooledRoute, Rating } from "@prisma/client";
+import { ReceivingModal } from "@/components/order/receiving-modal";
+import type {
+  Order, Listing, User, ProofOfDelivery, PooledRoute, Rating, PreDispatchInspection, OrderReceipt, OrderSettlementDispute,
+} from "@prisma/client";
 
 type FullOrder = Order & {
   listing: Listing;
@@ -19,6 +22,16 @@ type FullOrder = Order & {
   proofOfDelivery: ProofOfDelivery | null;
   route: (PooledRoute & { orders: Order[]; hauler: User }) | null;
   ratings: Rating[];
+  inspection: PreDispatchInspection | null;
+  receipt: OrderReceipt | null;
+  settlementDispute: OrderSettlementDispute | null;
+};
+
+// Shape of Order.freightSnapshot (see FreightBreakdown in src/lib/freight.ts).
+type FreightSnapshot = {
+  routeZone?: string; cropCategory?: string; ratePerKg?: number | string; baseFloorFee?: number | string;
+  weightFreight: number; floorApplied: boolean; grossFreight: number; tollApplied: number;
+  freightBase: number; haulerPayout: number; platformMargin: number;
 };
 
 export function OrderDetailView({
@@ -33,6 +46,10 @@ export function OrderDetailView({
   const listingPhotoUrl = resolvePhotoUrl(order.listing.photoBlobKey);
   const proofPhotoUrl = resolvePhotoUrl(order.proofOfDelivery?.photoBlobKey);
   const hasCommissionSnapshot = order.logisticsFeeAmountPHP != null;
+  const freight = order.freightSnapshot as FreightSnapshot | null;
+  const showReceiving = viewerRole === "BUYER" && order.status === "DELIVERED" && !order.receipt && !!order.dockArrivalAt;
+  const legacyConfirm =
+    viewerRole === "BUYER" && !!order.proofOfDelivery && order.status !== "SETTLED" && !order.receipt && !showReceiving;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
@@ -263,7 +280,79 @@ export function OrderDetailView({
           </Card>
         )}
 
-      {order.proofOfDelivery && order.status !== "SETTLED" && viewerRole === "BUYER" && (
+      {freight && viewerRole !== "SELLER" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Freight (tariff snapshot)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm text-neutral-700">
+            <p className="text-xs text-neutral-500">
+              {freight.routeZone} · {freight.cropCategory} — frozen at order time; later tariff changes don&apos;t affect this order.
+            </p>
+            <div className="flex justify-between"><span>Weight × rate</span><span>{formatPeso(freight.weightFreight)}</span></div>
+            {freight.floorApplied && <div className="flex justify-between"><span>Base floor applied</span><span>Yes</span></div>}
+            <div className="flex justify-between font-medium"><span>Freight charged to buyer</span><span>{formatPeso(freight.grossFreight)}</span></div>
+            <div className="flex justify-between"><span>of which toll pass-through</span><span>{formatPeso(freight.tollApplied)}</span></div>
+            <div className="flex justify-between"><span>Freight base</span><span>{formatPeso(freight.freightBase)}</span></div>
+            {(viewerRole === "HAULER" || viewerRole === "ADMIN") && (
+              <div className="flex justify-between font-medium text-brand-green-700"><span>Hauler payout (share of base + toll)</span><span>{formatPeso(freight.haulerPayout)}</span></div>
+            )}
+            {viewerRole === "ADMIN" && (
+              <div className="flex justify-between"><span>Platform margin</span><span>{formatPeso(freight.platformMargin)}</span></div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {order.receipt && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Dockside receipt</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm text-neutral-700">
+            <p>Baseline {order.receipt.baselineWeightKg} kg · accepted <b>{order.receipt.acceptedWeightKg} kg</b> · disputed <b>{order.receipt.disputedWeightKg} kg</b></p>
+            {order.receipt.reason && <p>Reason: {order.receipt.reason}</p>}
+            {order.settlementDispute && (
+              <p className="text-brand-gold-700">
+                Dispute {order.settlementDispute.status.replace(/_/g, " ").toLowerCase()} — {formatPeso(order.settlementDispute.heldSellerNetPHP + order.settlementDispute.heldCommissionPHP)} held pending Admin mediation.
+              </p>
+            )}
+            <p className="text-xs text-neutral-500">
+              Payments are settled through a simulated third-party settlement layer; ANI-KONEKTA does not hold funds.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {showReceiving && order.dockArrivalAt && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Receive delivery</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ReceivingModal
+              orderId={order.id}
+              baselineKg={order.inspection?.actualPickupWeightKg ?? order.volumeKg}
+              baselineSource={order.inspection ? "GATE_PASS" : "ORDERED_VOLUME"}
+              originPhotos={order.inspection?.originPhotoUrls ?? []}
+              originNote={
+                order.inspection
+                  ? [
+                      order.inspection.moistureReadingPercent != null ? `Moisture ${order.inspection.moistureReadingPercent}%` : null,
+                      order.inspection.packageCount != null ? `${order.inspection.packageCount} packages` : null,
+                      order.inspection.qualityCondition,
+                    ].filter(Boolean).join(" · ") || null
+                  : null
+              }
+              dockArrivalAtISO={order.dockArrivalAt.toISOString()}
+              windowEndsAtISO={order.receivingWindowEndsAt ? order.receivingWindowEndsAt.toISOString() : null}
+              serverNowISO={new Date().toISOString()}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {order.proofOfDelivery && legacyConfirm && (
         <Card>
           <CardHeader>
             <CardTitle>Confirm delivery</CardTitle>

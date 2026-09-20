@@ -29,6 +29,9 @@ export type ListingCardData = {
   sellerRatingCount: number;
   sellerVerification: PublicVerificationBadge;
   requiresColdChain: boolean;
+  ownerType: "INDIVIDUAL_SELLER" | "COOPERATIVE";
+  cropCategory: "GRAIN" | "VEGETABLE" | "FRUIT";
+  qualitySummary: string;
   badges: SellerBadge[];
   featuredLabel?: "recommended" | "bestValue" | "freshHarvest" | "popular";
   bulkMatchFormId?: string;
@@ -122,11 +125,15 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
           <Badge tone="gray" className="text-[10px]">
             {t(`quality.${listing.qualityTag}`)}
           </Badge>
+          <Badge tone={listing.ownerType === "COOPERATIVE" ? "blue" : "green"} className="text-[10px]">
+            {listing.ownerType === "COOPERATIVE" ? "Cooperative bulk lot" : "Direct smallholder"}
+          </Badge>
         </div>
         <p className="font-semibold text-neutral-900">
           {listing.cropType}
           {listing.variety ? ` — ${listing.variety}` : ""}
         </p>
+        <p className="text-[11px] text-neutral-500">{listing.qualitySummary}</p>
         <p className="text-xs text-neutral-500">
           {t("buyer.listing.seller")}: {listing.sellerName} · {listing.municipality}
         </p>

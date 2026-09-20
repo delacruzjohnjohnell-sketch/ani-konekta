@@ -15,6 +15,9 @@ import { VerificationStatusCard } from "@/components/verification/verification-s
 import { LocationPingSender } from "@/components/hauler/location-ping-sender";
 import { countUnreadHaulerMessages } from "@/lib/hauler-messaging";
 import { HaulerChatPanel } from "@/components/order/hauler-chat-panel";
+import { GatePassForm } from "@/components/hauler/gate-pass-form";
+import { BackhaulFinder } from "@/components/hauler/backhaul-finder";
+import { aggregateTripFreight } from "@/lib/freight";
 
 // Maps each RouteStatus to the ACTION that advances it, and which of the 3
 // user-facing steps (Pickup / In Transit / Delivered) it belongs to. The
@@ -68,7 +71,7 @@ export default async function HaulerDashboard({
     }),
     prisma.pooledRoute.findMany({
       where: { haulerId: userId },
-      include: { orders: { include: { listing: true, buyer: true, seller: true } } },
+      include: { orders: { include: { listing: true, buyer: true, seller: true, inspection: true } } },
       orderBy: { createdAt: "desc" },
     }),
     getActiveCommissionConfigs(),
@@ -142,7 +145,19 @@ export default async function HaulerDashboard({
             <p className="font-medium text-neutral-900">🧊 {t("coldChain.vehicleLabel", locale)}</p>
             <p className="text-xs text-neutral-500">{t("coldChain.vehicleHint", locale)}</p>
           </div>
-          <form action={setHaulerRefrigeratedVehicle} className="flex items-center gap-2">
+          <form action={setHaulerRefrigeratedVehicle} className="flex flex-wrap items-center gap-2">
+            <select
+              name="vehicleType"
+              defaultValue={me.vehicleType ?? ""}
+              aria-label="Vehicle type"
+              className="h-9 rounded-lg border border-black/15 bg-white px-2 text-sm"
+            >
+              <option value="">Vehicle…</option>
+              <option value="TEN_WHEELER">10-wheeler (12 t)</option>
+              <option value="FORWARD_6W">Forward 6W (7 t)</option>
+              <option value="CANTER_4W">Canter 4W (3.5 t)</option>
+              <option value="VAN_L300">L300 van (1 t)</option>
+            </select>
             <input
               id="hasRefrigeratedVehicle"
               name="hasRefrigeratedVehicle"
@@ -355,10 +370,41 @@ export default async function HaulerDashboard({
                     </p>
                   )}
 
+                  {(() => {
+                    const trip = aggregateTripFreight(r.orders);
+                    if (trip.perOrder.length === 0) return null;
+                    return (
+                      <div className="rounded-lg bg-neutral-50 p-3 text-xs text-neutral-700">
+                        <p className="font-semibold">Trip freight (per-order tariffs, aggregated)</p>
+                        <p>
+                          Freight {formatPeso(trip.grossFreight)} = base {formatPeso(trip.freightBase)} + toll {formatPeso(trip.tollApplied)}
+                          {" · "}your payout <b>{formatPeso(trip.haulerPayout)}</b> (your share of base + 100% of toll)
+                        </p>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Pre-dispatch Gate Pass: required (with seller sign-off) before the trip can leave. */}
+                  {r.orders.filter((o) => o.status === "POOLED").map((o) => (
+                    <div key={`gp-${o.id}`} className="rounded-lg border border-black/10 p-3">
+                      <p className="mb-1 text-sm font-medium">
+                        Gate Pass · #{o.id.slice(-8)} · {o.listing.cropType} · {o.volumeKg} kg
+                      </p>
+                      <GatePassForm
+                        orderId={o.id}
+                        cropCategory={o.cropCategory ?? o.listing.cropCategory}
+                        declaredKg={o.volumeKg}
+                        existing={o.inspection ? { actualPickupWeightKg: o.inspection.actualPickupWeightKg, signedOff: Boolean(o.inspection.sellerSignedAt) } : null}
+                      />
+                    </div>
+                  ))}
+
                   <details className="text-sm text-neutral-500">
                     <summary className="cursor-pointer text-brand-green-700">{t("common.viewDetails", locale)}</summary>
                     <ul className="mt-2 space-y-3">
-                      {r.orders.map((o) => (
+                      {r.orders.map((o) => {
+                        const f = o.freightSnapshot as null | { grossFreight: number; tollApplied: number; freightBase: number; haulerPayout: number; haulerSharePct: string | number; routeZone?: string; cropCategory?: string };
+                        return (
                         <li key={o.id} className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <span>
@@ -384,8 +430,15 @@ export default async function HaulerDashboard({
                               title={`Chat with seller (${o.seller.name})`}
                             />
                           </div>
+                          {f && (
+                            <p className="text-xs text-neutral-600">
+                              Freight {formatPeso(f.grossFreight)} = base {formatPeso(f.freightBase)} + toll {formatPeso(f.tollApplied)} ·
+                              your payout <b>{formatPeso(f.haulerPayout)}</b> ({f.routeZone} · {f.cropCategory})
+                            </p>
+                          )}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   </details>
 
@@ -419,6 +472,15 @@ export default async function HaulerDashboard({
           })}
         </div>
       </div>
+
+      <BackhaulFinder
+        haulerId={userId}
+        dropoffMunicipalities={Array.from(
+          new Set(
+            activeRoutes.flatMap((r) => r.orders.map((o) => o.buyer.municipality).filter((m): m is string => Boolean(m)))
+          )
+        )}
+      />
 
       {/* Delivery History — collapsed, completed routes only */}
       {deliveredRoutes.length > 0 && (

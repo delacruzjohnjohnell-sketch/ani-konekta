@@ -17,6 +17,21 @@ const CHILLED_PATTERN =
 const AMBIENT_PATTERN =
   /rice|palay|grain|corn|mais|potato|sweet potato|cassava|ube|gabi|camote|garlic|bawang|ginger|luya|dried|dry|coffee|kape|cacao|nuts|mani|coconut|niyog/i;
 
+const GRAIN_PATTERN = /rice|palay|grain|corn|mais|bigas|wheat|sorghum/i;
+const FRUIT_PATTERN =
+  /mango|mangga|banana|saging|calamansi|papaya|watermelon|pakwan|strawberry|pineapple|pinya|lanzones|durian|avocado|guava|orange|dalandan|jackfruit|langka/i;
+
+/**
+ * Best-guess crop category for backfill / form defaults — sellers can always
+ * override it. Anything not clearly a grain or fruit defaults to VEGETABLE
+ * (fresh horticultural produce, including root crops).
+ */
+export function guessCropCategory(cropType: string): "GRAIN" | "VEGETABLE" | "FRUIT" {
+  if (GRAIN_PATTERN.test(cropType)) return "GRAIN";
+  if (FRUIT_PATTERN.test(cropType)) return "FRUIT";
+  return "VEGETABLE";
+}
+
 export function guessRequiresColdChain(cropType: string): ColdChainGuess {
   if (CHILLED_PATTERN.test(cropType)) return { requiresColdChain: true, confident: true };
   if (AMBIENT_PATTERN.test(cropType)) return { requiresColdChain: false, confident: true };

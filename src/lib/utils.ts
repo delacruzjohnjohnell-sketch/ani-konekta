@@ -21,6 +21,7 @@ export const ORDER_STATUS_LABELS: Record<string, string> = {
   // which moves an order straight from here to POOLED in one step).
   ORDERED_ESCROWED: "Escrowed — Waiting for Pool",
   POOLED: "Pooled for Delivery",
+  INSPECTED_PICKUP: "Inspected at Pickup",
   IN_TRANSIT: "In Transit",
   DELIVERED: "Delivered",
   SETTLED: "Settled",
@@ -39,6 +40,7 @@ export const ORDER_PIPELINE = [
   "MATCHED",
   "ORDERED_ESCROWED",
   "POOLED",
+  "INSPECTED_PICKUP",
   "IN_TRANSIT",
   "DELIVERED",
   "SETTLED",

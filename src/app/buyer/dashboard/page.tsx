@@ -16,6 +16,7 @@ import { t } from "@/lib/i18n";
 import { VerificationStatusCard } from "@/components/verification/verification-status-card";
 import { getPublicVerificationBadge } from "@/lib/verification-badge";
 import { countUnreadHaulerMessages } from "@/lib/hauler-messaging";
+import { commodityQualitySummary } from "@/lib/commodity-labels";
 
 const MUNICIPALITIES = [
   "Cabanatuan City",
@@ -58,6 +59,7 @@ export default async function BuyerDashboard({
     sellerName?: string;
     category?: string;
     sort?: string;
+    source?: string;
   }>;
 }) {
   const session = await auth();
@@ -65,6 +67,8 @@ export default async function BuyerDashboard({
   const params = await searchParams;
   const locale = await getLocale();
   const category = params.category ?? "all";
+  // Sourcing track: all listings | direct smallholder | verified cooperative bulk lots.
+  const source = params.source === "direct" || params.source === "coop" ? params.source : "all";
   const sort = params.sort ?? "recommended";
 
   const [me, listingsRaw, orders, priceTrends, unreadHaulerChatCount] = await Promise.all([
@@ -72,15 +76,36 @@ export default async function BuyerDashboard({
     prisma.listing.findMany({
       where: {
         status: "ACTIVE",
+        ...(source === "direct" ? { ownerType: "INDIVIDUAL_SELLER" as const } : {}),
+        ...(source === "coop"
+          ? {
+              ownerType: "COOPERATIVE" as const,
+              // "Verified" = the cooperative's admin has passed the existing KYC workflow.
+              cooperative: { members: { some: { role: "COOPERATIVE_ADMIN" as const, kycStatus: "KYC_VERIFIED" as const } } },
+            }
+          : {}),
         ...(params.crop ? { cropType: { contains: params.crop, mode: "insensitive" } } : {}),
         ...(params.municipality ? { municipality: params.municipality } : {}),
         ...(params.quality ? { qualityTag: params.quality as never } : {}),
         ...(params.maxPrice ? { askingPricePerKg: { lte: Number(params.maxPrice) } } : {}),
         ...(params.sellerName
-          ? { seller: { name: { contains: params.sellerName, mode: "insensitive" } } }
+          ? {
+              OR: [
+                { seller: { name: { contains: params.sellerName, mode: "insensitive" as const } } },
+                { cooperative: { name: { contains: params.sellerName, mode: "insensitive" as const } } },
+              ],
+            }
           : {}),
       },
-      include: { seller: true },
+      include: {
+        seller: true,
+        cooperative: {
+          select: {
+            name: true,
+            members: { where: { role: "COOPERATIVE_ADMIN" }, select: { kycStatus: true, idVerificationStatus: true } },
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     }),
     prisma.order.findMany({
@@ -98,7 +123,11 @@ export default async function BuyerDashboard({
   const categoryDef = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0];
   const filteredByCategory = listingsRaw.filter((l) => categoryDef.match(l.cropType));
 
-  const sellerIds = [...new Set(filteredByCategory.map((l) => l.sellerId))];
+  // The user account whose ratings/badges represent the listing's owner (the
+  // farmer, or the cooperative admin who posted a cooperative bulk lot).
+  const ownerUserId = (l: { sellerId: string | null; postedByUserId: string | null; id: string }) =>
+    l.sellerId ?? l.postedByUserId ?? l.id;
+  const sellerIds = [...new Set(filteredByCategory.map(ownerUserId))];
   const sellerStats = await computeSellerBadges(sellerIds);
   // "Most Sold" has no literal per-listing sales counter (a listing depletes
   // rather than accumulating sales) — defined as the seller's total
@@ -115,22 +144,23 @@ export default async function BuyerDashboard({
         return b.createdAt.getTime() - a.createdAt.getTime();
       case "highestRated":
         return (
-          (sellerStats.get(b.sellerId)?.avgRating ?? 0) -
-          (sellerStats.get(a.sellerId)?.avgRating ?? 0)
+          (sellerStats.get(ownerUserId(b))?.avgRating ?? 0) -
+          (sellerStats.get(ownerUserId(a))?.avgRating ?? 0)
         );
       case "mostSold":
-        return (soldCountBySeller.get(b.sellerId) ?? 0) - (soldCountBySeller.get(a.sellerId) ?? 0);
+        return (soldCountBySeller.get(ownerUserId(b)) ?? 0) - (soldCountBySeller.get(ownerUserId(a)) ?? 0);
       case "recommended":
       default: {
-        const aScore = sellerStats.get(a.sellerId)?.badges.length ?? 0;
-        const bScore = sellerStats.get(b.sellerId)?.badges.length ?? 0;
+        const aScore = sellerStats.get(ownerUserId(a))?.badges.length ?? 0;
+        const bScore = sellerStats.get(ownerUserId(b))?.badges.length ?? 0;
         return bScore - aScore;
       }
     }
   });
 
   function toCardData(l: (typeof sorted)[number], featuredLabel?: ListingCardData["featuredLabel"]): ListingCardData {
-    const stats = sellerStats.get(l.sellerId);
+    const stats = sellerStats.get(ownerUserId(l));
+    const coopAdmin = l.cooperative?.members[0];
     return {
       id: l.id,
       cropType: l.cropType,
@@ -141,11 +171,14 @@ export default async function BuyerDashboard({
       municipality: l.municipality,
       photoUrl: resolvePhotoUrl(l.photoBlobKey),
       minOrderQtyKg: l.minOrderQtyKg,
-      sellerId: l.sellerId,
-      sellerName: l.seller.name,
-      sellerRatingSum: l.seller.ratingSum,
-      sellerRatingCount: l.seller.ratingCount,
-      sellerVerification: getPublicVerificationBadge(l.seller),
+      sellerId: ownerUserId(l),
+      sellerName: l.cooperative?.name ?? l.seller?.name ?? "—",
+      sellerRatingSum: l.seller?.ratingSum ?? 0,
+      sellerRatingCount: l.seller?.ratingCount ?? 0,
+      sellerVerification: getPublicVerificationBadge(l.seller ?? coopAdmin ?? { kycStatus: "NOT_VERIFIED", idVerificationStatus: "NOT_VERIFIED" }),
+      ownerType: l.ownerType,
+      cropCategory: l.cropCategory,
+      qualitySummary: commodityQualitySummary(l),
       requiresColdChain: l.requiresColdChain,
       badges: stats?.badges ?? [],
       featuredLabel,
@@ -168,10 +201,10 @@ export default async function BuyerDashboard({
       usedIds.add(candidate.id);
     }
   }
-  pickFeatured("recommended", (a, b) => (sellerStats.get(b.sellerId)?.avgRating ?? 0) - (sellerStats.get(a.sellerId)?.avgRating ?? 0));
+  pickFeatured("recommended", (a, b) => (sellerStats.get(ownerUserId(b))?.avgRating ?? 0) - (sellerStats.get(ownerUserId(a))?.avgRating ?? 0));
   pickFeatured("bestValue", (a, b) => a.askingPricePerKg - b.askingPricePerKg);
   pickFeatured("freshHarvest", (a, b) => b.harvestDate.getTime() - a.harvestDate.getTime());
-  pickFeatured("popular", (a, b) => (soldCountBySeller.get(b.sellerId) ?? 0) - (soldCountBySeller.get(a.sellerId) ?? 0));
+  pickFeatured("popular", (a, b) => (soldCountBySeller.get(ownerUserId(b)) ?? 0) - (soldCountBySeller.get(ownerUserId(a)) ?? 0));
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 py-8">
@@ -246,6 +279,28 @@ export default async function BuyerDashboard({
               </Button>
             </div>
           </form>
+
+          <div className="mb-3 flex flex-wrap gap-2" aria-label="Sourcing track">
+            {(
+              [
+                ["all", "All Listings"],
+                ["direct", "Direct Smallholder Listings"],
+                ["coop", "Verified Cooperative Bulk Lots"],
+              ] as const
+            ).map(([key, label]) => (
+              <Link
+                key={key}
+                href={{ pathname: "/buyer/dashboard", query: { ...params, source: key } }}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  source === key
+                    ? "border-brand-gold-600 bg-brand-gold-500 text-white"
+                    : "border-black/15 bg-white text-neutral-700 hover:border-brand-gold-600"
+                }`}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
 
           <div className="mb-4 flex flex-wrap gap-2">
             {CATEGORIES.map((c) => (

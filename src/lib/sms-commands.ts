@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { suggestFairPrice } from "@/lib/pricing";
+import { createListingRecord, actingSellerUserId } from "@/lib/listing-service";
+import { guessCropCategory } from "@/lib/cold-chain";
 import { notifications } from "@/lib/notifications";
 import { createEscrowedOrderForLines } from "@/lib/order-fulfillment";
 import { StockUnavailableError } from "@/lib/listing-stock";
@@ -90,23 +91,33 @@ export async function handleInboundSms(params: { phone: string; body: string }):
       success = false;
       reply = "Only registered sellers can LIST produce.";
     } else {
-      const aiSuggestedPricePerKg = await suggestFairPrice(
-        parsed.cropType,
-        user.municipality ?? "Unknown",
-        "STANDARD"
-      );
-      const listing = await prisma.listing.create({
-        data: {
-          sellerId: user.id,
-          cropType: parsed.cropType,
-          volumeKg: parsed.volumeKg,
-          harvestDate: new Date(),
-          askingPricePerKg: parsed.pricePerKg,
-          aiSuggestedPricePerKg,
-          municipality: user.municipality ?? "Unknown",
-          // No camera on a feature phone — this is the one documented,
-          // intentional exception to the mandatory-photo listing rule.
-          photoBlobKey: null,
+      // Same backend record as the web/mobile form (createListingRecord) —
+      // ownerType INDIVIDUAL_SELLER, sellerId set, cooperativeId null. A
+      // feature phone can't supply moisture/produce-class data, so those stay
+      // null here and are captured at the pre-dispatch Gate Pass inspection.
+      const cropCategory = guessCropCategory(parsed.cropType);
+      const listing = await createListingRecord({
+        ownerType: "INDIVIDUAL_SELLER",
+        sellerId: user.id,
+        cooperativeId: null,
+        postedByUserId: user.id,
+        cropType: parsed.cropType,
+        volumeKg: parsed.volumeKg,
+        harvestDate: new Date(),
+        askingPricePerKg: parsed.pricePerKg,
+        municipality: user.municipality ?? "Unknown",
+        // No camera on a feature phone — this is the one documented,
+        // intentional exception to the mandatory-photo listing rule.
+        photoBlobKey: null,
+        assistedEntrySource: "SMS",
+        quality: {
+          cropCategory,
+          isGrainWet: null,
+          moistureContentPercent: null,
+          grainGrade: null,
+          produceClass: null,
+          packagingType: null,
+          harvestTimestamp: cropCategory === "GRAIN" ? null : new Date(),
         },
       });
       reply = `Listed ${parsed.volumeKg}kg of ${parsed.cropType} at PHP${parsed.pricePerKg}/kg. Listing ID: ${listing.id}`;
@@ -128,7 +139,7 @@ export async function handleInboundSms(params: { phone: string; body: string }):
         try {
           const order = await createEscrowedOrderForLines({
             buyerId: user.id,
-            sellerId: listing.sellerId,
+            sellerId: actingSellerUserId(listing),
             lines: [
               {
                 listingId: listing.id,

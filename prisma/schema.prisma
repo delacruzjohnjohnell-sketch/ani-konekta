@@ -15,6 +15,7 @@ enum Role {
   BUYER
   HAULER
   ADMIN
+  COOPERATIVE_ADMIN
 }
 
 enum QualityTag {
@@ -47,10 +48,16 @@ enum OrderStatus {
   DELIVERED
   SETTLED
   DISPUTED
+  // Set once the origin Gate Pass inspection is complete and signed off by
+  // the seller/cooperative — locks the origin weight/quality baseline.
+  INSPECTED_PICKUP
 }
 
 enum EscrowStatus {
   HELD
+  // Dockside partial acceptance: the undisputed fraction has been released,
+  // only the disputed fraction is still held.
+  PARTIALLY_RELEASED
   RELEASED
   REFUNDED
 }
@@ -103,6 +110,86 @@ enum EscrowTriggerType {
   BUYER_CONFIRM
   AUTO_TIMEOUT
   ADMIN_DUAL_APPROVAL
+  BUYER_PARTIAL_RECEIPT
+  ADMIN_MEDIATION
+}
+
+// --- Dual-track supply model, commodity freight, dispatch, QA ------------
+enum OwnerType {
+  INDIVIDUAL_SELLER
+  COOPERATIVE
+}
+
+enum CropCategory {
+  GRAIN
+  VEGETABLE
+  FRUIT
+}
+
+enum GrainGrade {
+  GRADE_1
+  GRADE_2
+  GRADE_3
+  WET_UNCLASSIFIED
+}
+
+enum ProduceClass {
+  CLASS_EXTRA
+  CLASS_I
+  CLASS_II
+  SUBSTANDARD
+}
+
+enum PackagingType {
+  CRATE
+  SACK
+  BOX
+  BUNDLE
+}
+
+enum BuyerType {
+  RETAIL_SPOT
+  INSTITUTIONAL_ENTERPRISE
+}
+
+enum RouteZone {
+  REGIONAL_MANILA
+  LOCAL_PROVINCIAL
+}
+
+enum VehicleType {
+  TEN_WHEELER
+  FORWARD_6W
+  CANTER_4W
+  VAN_L300
+}
+
+enum PaymentTerms {
+  PREPAID
+  NET_30
+}
+
+enum SettlementDisputeStatus {
+  OPEN
+  RESOLUTION_PROPOSED
+  RESOLVED
+}
+
+enum SettlementResolutionType {
+  SELLER_RELEASE
+  BUYER_REFUND
+  SPLIT
+}
+
+enum LoanEntryType {
+  LOAN_ISSUED
+  REPAYMENT_DEDUCTION
+  ADJUSTMENT
+}
+
+enum StagingTicketKind {
+  DROP_OFF
+  DISPATCH
 }
 
 enum DisputeApprovalStatus {
@@ -143,6 +230,20 @@ model User {
   // is future work (flagged, not built — matches how ID/KYC verification
   // exists but this doesn't reuse it).
   hasRefrigeratedVehicle Boolean @default(false)
+  // Declared vehicle class (dispatch engine capacity source); null = unknown.
+  vehicleType            VehicleType?
+
+  // Buyer profile (RETAIL_SPOT vs INSTITUTIONAL_ENTERPRISE). INSTITUTIONAL
+  // requires registeredBusinessName + tin (enforced server-side at
+  // registration). tin is sensitive — never returned by any listing/public
+  // query; only the owner and ADMIN read it. invoiceFinancingEligible and
+  // creditLimit are set ONLY by an admin — never granted automatically.
+  buyerType               BuyerType?
+  registeredBusinessName  String?
+  tin                     String?
+  requiresBir2307         Boolean    @default(false)
+  invoiceFinancingEligible Boolean   @default(false)
+  creditLimit             Decimal?   @db.Decimal(14, 2)
 
   listings         Listing[]         @relation("SellerListings")
   buyerOrders      Order[]           @relation("BuyerOrders")
@@ -166,6 +267,8 @@ model User {
   haulerMessagesSent        HaulerMessage[]            @relation("HaulerMessageSender")
   haulerMessagesReceived    HaulerMessage[]            @relation("HaulerMessageRecipient")
   smsMessages               SmsMessage[]
+  postedListings            Listing[]                  @relation("ListingPostedBy")
+  auditLogs                 AuditLog[]
 }
 
 model Cooperative {
@@ -174,12 +277,44 @@ model Cooperative {
   municipality String
   members      User[]
   createdAt    DateTime @default(now())
+
+  // Sensitive: settlement bank/e-wallet details. Only the cooperative's own
+  // admin and ADMIN may read this — never selected by marketplace queries.
+  bankInfo     String?
+
+  listings     Listing[]
+  orders       Order[]
+  farmerMembers CooperativeMember[]
+  lots         ConsolidatedLot[]
+  stagingTickets StagingHubTicket[]
 }
 
 model Listing {
   id                    String        @id @default(cuid())
-  sellerId              String
-  seller                User          @relation("SellerListings", fields: [sellerId], references: [id])
+  // DUAL-TRACK: INDIVIDUAL_SELLER listings have sellerId set and
+  // cooperativeId null; COOPERATIVE listings have cooperativeId set and
+  // sellerId null (enforced by src/lib/listing-service.ts and a DB CHECK
+  // constraint — see prisma/apply-revision-constraints.ts).
+  sellerId              String?
+  seller                User?         @relation("SellerListings", fields: [sellerId], references: [id])
+  ownerType             OwnerType     @default(INDIVIDUAL_SELLER)
+  cooperativeId         String?
+  cooperative           Cooperative?  @relation(fields: [cooperativeId], references: [id])
+  // The user who actually created the listing (the farmer, the cooperative
+  // admin, or — for assisted/offline entry — the farmer stays the owner and
+  // the coordinator is recorded in assistedByUserId).
+  postedByUserId        String?
+  postedBy              User?         @relation("ListingPostedBy", fields: [postedByUserId], references: [id])
+  assistedEntrySource   String?
+  assistedByUserId      String?
+  cropCategory          CropCategory  @default(GRAIN)
+  // Commodity-adaptive quality data (do not force one standard on all crops)
+  isGrainWet            Boolean?
+  moistureContentPercent Float?
+  grainGrade            GrainGrade?
+  produceClass          ProduceClass?
+  packagingType         PackagingType?
+  harvestTimestamp      DateTime?
   cropType              String
   variety               String?
   volumeKg              Float
@@ -217,6 +352,7 @@ model Listing {
   coldChainNeedsReview Boolean @default(false)
 
   orders Order[]
+  lots   ConsolidatedLot[]
 }
 
 model Order {
@@ -244,6 +380,36 @@ model Order {
   // against. Resetting it on dispute-resolution gives the buyer a fresh
   // window rather than an instant auto-release right after resolution.
   escrowEligibleAt DateTime?
+
+  // DUAL-TRACK ownership snapshot + commodity freight (tariff snapshot).
+  // For cooperative-owned orders sellerId is the cooperative's acting admin
+  // user; payouts are routed by ownerType/cooperativeId, never by sellerId.
+  ownerType        OwnerType    @default(INDIVIDUAL_SELLER)
+  cooperativeId    String?
+  cooperative      Cooperative? @relation(fields: [cooperativeId], references: [id])
+  cropCategory     CropCategory?
+  routeZone        RouteZone?
+  freightFloorApplied Boolean?
+  // Full tariff row used + every computed component, frozen at order
+  // creation so later Admin tariff edits never change historical orders.
+  freightSnapshot  Json?
+  paymentTerms     PaymentTerms @default(PREPAID)
+
+  // Dockside receiving. dockArrivalAt is SERVER-recorded (never the buyer's
+  // device clock); receivingWindowEndsAt = dockArrivalAt + 2h.
+  dockArrivalAt         DateTime?
+  receivingWindowEndsAt DateTime?
+  acceptedWeightKg      Float?
+  disputedWeightKg      Float?
+  // Merchandise money still held pending dispute mediation (0 otherwise).
+  heldSellerNetPHP      Float @default(0)
+  heldCommissionPHP     Float @default(0)
+
+  inspection        PreDispatchInspection?
+  receipt           OrderReceipt?
+  settlementDispute OrderSettlementDispute?
+  memberSettlements MemberSettlement[]
+  invoices          InvoiceDocument[]
 
   routeId String?
   route   PooledRoute? @relation(fields: [routeId], references: [id])
@@ -327,6 +493,18 @@ model PooledRoute {
   currentLat Float?
   currentLng Float?
   lastPingAt DateTime?
+
+  // Load-deficit dispatch engine (src/lib/dispatch-engine.ts).
+  vehicleType          VehicleType?
+  capacityKg           Float?
+  cutoffAt             DateTime?
+  utilizationPct       Float?
+  // QUEUED | UNRESOLVED_LOW_UTILIZATION (null until evaluated)
+  dispatchDecision     String?
+  // 0 = met 60% outright; 1-4 = contingency level that resolved the deficit
+  deficitResolvedLevel Int?
+  dispatchLog          Json?
+  crossDockCooperativeId String?
 }
 
 model ProofOfDelivery {
@@ -562,4 +740,241 @@ model HaulerMessage {
   body        String
   createdAt   DateTime  @default(now())
   readAt      DateTime?
+}
+
+
+// ============================================================================
+// REVISION: dual-track supply, commodity freight, QA gate passes, dockside
+// partial acceptance, cooperative tools, audit, invoicing abstraction.
+// ============================================================================
+
+// Live, database-driven freight tariff, unique per (routeZone, cropCategory).
+// Checkout ALWAYS reads the current row (src/lib/freight.ts) — the seeded
+// values are defaults only, never hard-coded constants.
+model CommodityFreightTariff {
+  id               String       @id @default(cuid())
+  routeZone        RouteZone
+  cropCategory     CropCategory
+  ratePerKg        Decimal      @db.Decimal(12, 4)
+  baseFloorFee     Decimal      @db.Decimal(12, 2)
+  tollPassThrough  Decimal      @default(0) @db.Decimal(12, 2)
+  haulerSharePct   Decimal      @db.Decimal(5, 4)
+  platformSharePct Decimal      @db.Decimal(5, 4)
+  updatedByAdminId String?
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([routeZone, cropCategory])
+}
+
+// Pre-dispatch digital Gate Pass. Once locked (after every required
+// sign-off) it is immutable except via an audited Admin correction.
+model PreDispatchInspection {
+  id                    String    @id @default(cuid())
+  orderId               String    @unique
+  order                 Order     @relation(fields: [orderId], references: [id])
+  haulerId              String
+  actualPickupWeightKg  Float
+  moistureReadingPercent Float?
+  packageCount          Int?
+  qualityCondition      String?
+  originPhotoUrls       String[]
+  commodityData         Json?
+  sellerSignoffUserId   String?
+  sellerSignedAt        DateTime?
+  serverTimestamp       DateTime  @default(now())
+  lockedAt              DateTime?
+}
+
+// Buyer dockside receiving record (server-timestamped).
+model OrderReceipt {
+  id                String   @id @default(cuid())
+  orderId           String   @unique
+  order             Order    @relation(fields: [orderId], references: [id])
+  buyerId           String
+  baselineWeightKg  Float
+  acceptedWeightKg  Float
+  disputedWeightKg  Float
+  reason            String?
+  dockPhotoUrls     String[]
+  confirmedAt       DateTime @default(now())
+}
+
+model OrderSettlementDispute {
+  id                  String                    @id @default(cuid())
+  orderId             String                    @unique
+  order               Order                     @relation(fields: [orderId], references: [id])
+  disputedWeightKg    Float
+  heldSellerNetPHP    Float
+  heldCommissionPHP   Float
+  reason              String?
+  status              SettlementDisputeStatus   @default(OPEN)
+  // FARM_ORIGIN | IN_TRANSIT | UNDETERMINED — drives which claims workflow
+  // applies (no insurance is claimed unless a policy/provider is configured).
+  damageOrigin        String?
+  proposedType        SettlementResolutionType?
+  proposedSellerPct   Float?
+  proposedNotes       String?
+  proposedById        String?
+  approvedById        String?
+  resolvedAt          DateTime?
+  createdAt           DateTime                  @default(now())
+}
+
+// Append-only audit trail (DB trigger blocks UPDATE/DELETE — see
+// prisma/apply-revision-constraints.ts).
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model CooperativeMember {
+  id                 String   @id @default(cuid())
+  cooperativeId      String
+  cooperative        Cooperative @relation(fields: [cooperativeId], references: [id])
+  name               String
+  phone              String?
+  outstandingDebtPHP Decimal  @default(0) @db.Decimal(14, 2)
+  // Fraction (0-1) of each proceeds tranche auto-deducted toward the debt.
+  deductionPct       Decimal  @default(0) @db.Decimal(5, 4)
+  createdAt          DateTime @default(now())
+
+  ledger        LoanLedgerEntry[]
+  contributions LotContribution[]
+  settlements   MemberSettlement[]
+}
+
+// Immutable member-loan history (DB trigger blocks UPDATE/DELETE).
+model LoanLedgerEntry {
+  id             String        @id @default(cuid())
+  memberId       String
+  member         CooperativeMember @relation(fields: [memberId], references: [id])
+  type           LoanEntryType
+  amountPHP      Decimal       @db.Decimal(14, 2)
+  balanceAfterPHP Decimal      @db.Decimal(14, 2)
+  orderId        String?
+  note           String?
+  createdAt      DateTime      @default(now())
+}
+
+model ConsolidatedLot {
+  id             String       @id @default(cuid())
+  cooperativeId  String
+  cooperative    Cooperative  @relation(fields: [cooperativeId], references: [id])
+  cropType       String
+  cropCategory   CropCategory
+  totalWeightKg  Float
+  listingId      String?
+  listing        Listing?     @relation(fields: [listingId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  contributions  LotContribution[]
+}
+
+model LotContribution {
+  id        String   @id @default(cuid())
+  lotId     String
+  lot       ConsolidatedLot @relation(fields: [lotId], references: [id])
+  memberId  String
+  member    CooperativeMember @relation(fields: [memberId], references: [id])
+  weightKg  Float
+}
+
+// Per-order allocation of cooperative proceeds to lot contributors, with the
+// loan deduction taken. @@unique makes each tranche idempotent.
+model MemberSettlement {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id])
+  memberId      String
+  member        CooperativeMember @relation(fields: [memberId], references: [id])
+  tranche       String
+  proceedsPHP   Decimal  @db.Decimal(14, 2)
+  deductionPHP  Decimal  @db.Decimal(14, 2)
+  memberNetPHP  Decimal  @db.Decimal(14, 2)
+  createdAt     DateTime @default(now())
+
+  @@unique([orderId, memberId, tranche])
+}
+
+model StagingHubTicket {
+  id                 String            @id @default(cuid())
+  cooperativeId      String
+  cooperative        Cooperative       @relation(fields: [cooperativeId], references: [id])
+  kind               StagingTicketKind
+  memberId           String?
+  weighbridgeTicketNo String
+  cropType           String
+  weightKg           Float
+  batchCode          String?
+  orderId            String?
+  routeId            String?
+  manifest           Json?
+  notes              String?
+  createdAt          DateTime          @default(now())
+}
+
+// Government benchmark prices are ONLY shown when a record with a real
+// source + date exists — none are fabricated.
+model BenchmarkPrice {
+  id          String    @id @default(cuid())
+  cropType    String
+  region      String    @default("Central Luzon")
+  pricePerKg  Float
+  source      String
+  asOfDate    DateTime
+  createdById String?
+  createdAt   DateTime  @default(now())
+}
+
+// Return-load cargo records for the Hauler Backhaul Finder (none are
+// fabricated — the finder shows an empty state when none exist).
+model BackhaulCargo {
+  id                    String   @id @default(cuid())
+  pickupMunicipality    String
+  destinationMunicipality String
+  weightKg              Float
+  cargoType             String
+  availableFrom         DateTime
+  active                Boolean  @default(true)
+  notes                 String?
+  // Shipper-quoted rate for this return load; null = "not quoted" (the
+  // finder never estimates or invents backhaul earnings).
+  offeredPricePHP       Float?
+  createdAt             DateTime @default(now())
+}
+
+// A hauler's declared inbound/return availability (dispatch Level 4).
+model HaulerAvailability {
+  id                      String   @id @default(cuid())
+  haulerId                String
+  originMunicipality      String
+  destinationMunicipality String
+  capacityKg              Float
+  availableFrom           DateTime
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+}
+
+// Invoice / BIR Form 2307 documents produced through a provider abstraction
+// (src/lib/invoicing.ts). provider=SIMULATED documents are NOT BIR-accredited
+// and carry birCompliant=false.
+model InvoiceDocument {
+  id           String   @id @default(cuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id])
+  kind         String
+  provider     String
+  birCompliant Boolean  @default(false)
+  payload      Json
+  createdAt    DateTime @default(now())
+
+  @@unique([orderId, kind])
 }

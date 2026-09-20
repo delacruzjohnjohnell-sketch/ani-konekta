@@ -6,6 +6,7 @@ const ROLE_HOME: Record<string, string> = {
   BUYER: "/buyer/dashboard",
   HAULER: "/hauler/dashboard",
   ADMIN: "/admin",
+  COOPERATIVE_ADMIN: "/cooperative/dashboard",
 };
 
 // Convenience redirector so login/register can send everyone to one place.

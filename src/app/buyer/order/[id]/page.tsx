@@ -20,6 +20,9 @@ export default async function BuyerOrderPage({
       proofOfDelivery: true,
       route: { include: { orders: true, hauler: true } },
       ratings: true,
+      inspection: true,
+      receipt: true,
+      settlementDispute: true,
     },
   });
 

@@ -4,8 +4,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { suggestFairPrice } from "@/lib/pricing";
-import { paymentProvider } from "@/lib/payments";
 import { notifications } from "@/lib/notifications";
 import { poolOrdersByMunicipality } from "@/lib/routing";
 import { uploadPhoto, PhotoValidationError } from "@/lib/blob-storage";
@@ -15,10 +13,14 @@ import type { ActionState } from "@/components/ui/action-form";
 import { createEscrowedOrderForLines } from "@/lib/order-fulfillment";
 import { StockUnavailableError } from "@/lib/listing-stock";
 import { sweepAutoReleaseEligibleOrders } from "@/lib/escrow-auto-release";
+import { createListingRecord, parseCommodityQuality, actingSellerUserId, listingOwnerKey } from "@/lib/listing-service";
+import { applyReceipt, releaseFullSettlement, SettlementError } from "@/lib/settlement";
+import { FreightTariffMissingError, quoteFreight, routeZoneForMunicipality } from "@/lib/freight";
+import { checkNet30Eligibility } from "@/lib/credit";
+import { VEHICLE_CAPACITY_KG, DEFAULT_CUTOFF_HOURS } from "@/lib/dispatch-engine";
 import {
   getOrCreateWallet,
   walletHoldForOrder,
-  walletReleaseForOrder,
   InsufficientWalletBalanceError,
 } from "@/lib/wallet";
 
@@ -60,16 +62,21 @@ export async function createListing(
   const minOrderQtyKgRaw = String(formData.get("minOrderQtyKg") ?? "").trim();
   const minOrderQtyKg = minOrderQtyKgRaw ? Number(minOrderQtyKgRaw) : null;
   const description = String(formData.get("description") ?? "").trim() || null;
-  // FEATURE 2 — Cold-Chain Classification: the checkbox always renders
-  // pre-checked/unchecked per guessRequiresColdChain(cropType) (client-side,
-  // see the listing form), but the seller can override it — this reads
-  // whatever the submitted checkbox state actually was, not the heuristic.
+  // FEATURE 2 — Cold-Chain Classification: the seller's checkbox state is the
+  // value (the form can pre-suggest it from the crop type, but never forces it).
   const requiresColdChain = formData.get("requiresColdChain") === "on";
   const photoFile = formData.get("photo");
 
   if (!cropType || !municipality || !volumeKg || !askingPricePerKg) {
     return { error: t("seller.error.missingFields", locale) };
   }
+
+  // Commodity-adaptive quality data (grain vs fresh produce — never one generic standard).
+  const quality = parseCommodityQuality((k) => {
+    const v = formData.get(k);
+    return v == null ? null : String(v);
+  }, harvestDate);
+  if (!quality.ok) return { error: quality.error };
 
   // A listing can never be published without a real photo attachment — no
   // pasted-URL fallback (Feature: direct file attachment, never a URL field).
@@ -85,28 +92,25 @@ export async function createListing(
     return { error: t("seller.error.photoUploadFailed", locale, { reason }) };
   }
 
-  const aiSuggestedPricePerKg = await suggestFairPrice(
+  // DUAL-TRACK: an independent farmer's listing is always INDIVIDUAL_SELLER —
+  // sellerId set, cooperativeId null, no cooperative membership required.
+  await createListingRecord({
+    ownerType: "INDIVIDUAL_SELLER",
+    sellerId: user.id,
+    cooperativeId: null,
+    postedByUserId: user.id,
     cropType,
+    variety,
+    volumeKg,
+    harvestDate,
+    askingPricePerKg,
+    qualityTag,
     municipality,
-    qualityTag
-  );
-
-  await prisma.listing.create({
-    data: {
-      sellerId: user.id,
-      cropType,
-      variety,
-      volumeKg,
-      harvestDate,
-      askingPricePerKg,
-      aiSuggestedPricePerKg,
-      qualityTag: qualityTag as never,
-      municipality,
-      minOrderQtyKg,
-      description,
-      photoBlobKey,
-      requiresColdChain,
-    },
+    minOrderQtyKg,
+    description,
+    photoBlobKey,
+    requiresColdChain,
+    quality: quality.data,
   });
 
   revalidatePath("/seller/dashboard");
@@ -129,7 +133,7 @@ export async function editListing(
   const listingId = String(formData.get("listingId"));
 
   const existing = await prisma.listing.findUnique({ where: { id: listingId } });
-  if (!existing || existing.sellerId !== user.id) {
+  if (!existing || existing.sellerId !== user.id || existing.ownerType !== "INDIVIDUAL_SELLER") {
     return { error: t("seller.error.notFound", locale) };
   }
 
@@ -149,6 +153,12 @@ export async function editListing(
   if (!cropType || !municipality || !volumeKg || !askingPricePerKg) {
     return { error: t("seller.error.missingFields", locale) };
   }
+
+  const quality = parseCommodityQuality((k) => {
+    const v = formData.get(k);
+    return v == null ? null : String(v);
+  }, harvestDate);
+  if (!quality.ok) return { error: quality.error };
 
   let photoBlobKey = existing.photoBlobKey;
   if (photoFile instanceof File && photoFile.size > 0) {
@@ -174,6 +184,13 @@ export async function editListing(
       description,
       photoBlobKey,
       requiresColdChain,
+      cropCategory: quality.data.cropCategory,
+      isGrainWet: quality.data.isGrainWet,
+      moistureContentPercent: quality.data.moistureContentPercent,
+      grainGrade: quality.data.grainGrade,
+      produceClass: quality.data.produceClass,
+      packagingType: quality.data.packagingType,
+      harvestTimestamp: quality.data.harvestTimestamp,
     },
   });
 
@@ -236,7 +253,7 @@ export async function placeOrder(formData: FormData) {
 
   const order = await createEscrowedOrderForLines({
     buyerId: user.id,
-    sellerId: listing.sellerId,
+    sellerId: actingSellerUserId(listing),
     lines: [
       {
         listingId: listing.id,
@@ -277,7 +294,10 @@ export async function bulkMatchOrder(formData: FormData) {
   // All bulk-matched listings must share one seller-of-record for this MVP's
   // single-seller Order model; in practice this groups one cooperative's
   // members. Simplification noted for Phase 2 (multi-seller split orders).
-  const primarySellerId = listings[0].sellerId;
+  if (!listings.every((l) => listingOwnerKey(l) === listingOwnerKey(listings[0]))) {
+    throw new Error("Bulk match requires listings from the same seller or cooperative.");
+  }
+  const primarySellerId = actingSellerUserId(listings[0]);
 
   const order = await createEscrowedOrderForLines({
     buyerId: user.id,
@@ -377,22 +397,46 @@ export async function checkoutCart(
     }
   }
 
-  // Group by seller — Order.sellerId is single, so a multi-seller cart
-  // becomes one Order per seller (same convention as bulkMatchOrder).
+  // Group by (owner, crop category): Order.sellerId is single, and each
+  // commodity ships under its own route+commodity freight tariff — so a mixed
+  // cart becomes one Order per owner per crop category.
   const bySeller = new Map<string, typeof requestedLines>();
   for (const line of requestedLines) {
     const listing = listingById.get(line.listingId)!;
-    const key = listing.sellerId;
+    const key = `${listingOwnerKey(listing)}|${listing.cropCategory}`;
     if (!bySeller.has(key)) bySeller.set(key, []);
     bySeller.get(key)!.push(line);
   }
 
+  const paymentTerms = fundingSource === "NET30" ? ("NET_30" as const) : ("PREPAID" as const);
+  const buyerRow = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  const zone = routeZoneForMunicipality(buyerRow.municipality);
+
+  // Net-30 invoice credit: only approved institutional buyers, within their limit (never automatic).
+  if (paymentTerms === "NET_30") {
+    let estTotal = 0;
+    try {
+      for (const lines of bySeller.values()) {
+        const first = listingById.get(lines[0].listingId)!;
+        const kg = lines.reduce((s, l) => s + l.qtyKg, 0);
+        const merchandise = lines.reduce((s, l) => s + l.qtyKg * listingById.get(l.listingId)!.askingPricePerKg, 0);
+        estTotal += merchandise + (await quoteFreight(zone, first.cropCategory, kg)).grossFreight;
+      }
+    } catch (err) {
+      if (err instanceof FreightTariffMissingError) return { error: err.message };
+      throw err;
+    }
+    const eligibility = await checkNet30Eligibility(user.id, estTotal);
+    if (!eligibility.ok) return { error: eligibility.error };
+  }
+
   const orderIds: string[] = [];
   try {
-    for (const [sellerId, lines] of bySeller) {
+    for (const lines of bySeller.values()) {
+      const firstListing = listingById.get(lines[0].listingId)!;
       const order = await createEscrowedOrderForLines({
         buyerId: user.id,
-        sellerId,
+        sellerId: actingSellerUserId(firstListing),
         lines: lines.map((l) => {
           const listing = listingById.get(l.listingId)!;
           return {
@@ -404,6 +448,7 @@ export async function checkoutCart(
         }),
         isBulkMatch: lines.length > 1,
         decrementStock: true, // partial-quantity purchase
+        paymentTerms,
       });
       orderIds.push(order.id);
 
@@ -417,6 +462,9 @@ export async function checkoutCart(
     }
   } catch (err) {
     if (err instanceof StockUnavailableError) {
+      return { error: err.message };
+    }
+    if (err instanceof FreightTariffMissingError) {
       return { error: err.message };
     }
     if (err instanceof InsufficientWalletBalanceError) {
@@ -474,6 +522,8 @@ export async function acceptAndPoolOrder(formData: FormData) {
 
   const pickupMunicipality = order.listing.municipality;
   const dropoffMunicipality = order.buyer.municipality?.trim() || "Buyer facility (TBD)";
+  const haulerVehicle =
+    (await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).vehicleType ?? "TEN_WHEELER";
 
   const joinableRoute = await prisma.pooledRoute.findFirst({
     where: {
@@ -505,6 +555,11 @@ export async function acceptAndPoolOrder(formData: FormData) {
             status: "ASSIGNED" as const,
             etaMinutes: pooled.estimatedEtaMinutes,
             distanceKm: pooled.estimatedDistanceKm,
+            // Dispatch engine inputs: declared vehicle class (default the
+            // largest, so a light load is right-sized at cutoff) + cutoff time.
+            vehicleType: haulerVehicle,
+            capacityKg: VEHICLE_CAPACITY_KG[haulerVehicle],
+            cutoffAt: new Date(Date.now() + DEFAULT_CUTOFF_HOURS * 3600_000),
           };
         })(),
       });
@@ -557,22 +612,47 @@ export async function advanceRouteStatus(formData: FormData) {
     }
   }
 
+  // GATE PASS ENFORCEMENT: a trip can't leave for transit until every order
+  // still waiting at POOLED has a completed, seller-signed pre-dispatch
+  // inspection (INSPECTED_PICKUP). Orders already IN_TRANSIT (legacy trips) are exempt.
+  if (nextStatus === "IN_TRANSIT") {
+    const uninspected = route.orders.filter((o) => o.status === "POOLED");
+    if (uninspected.length > 0) {
+      throw new Error(
+        `Pre-dispatch Gate Pass inspection (with seller sign-off) is required before dispatch for order(s): ${uninspected
+          .map((o) => "#" + o.id.slice(-8))
+          .join(", ")}.`
+      );
+    }
+  }
+
   await prisma.pooledRoute.update({
     where: { id: route.id },
     data: { status: nextStatus as never },
   });
 
-  const orderStatus = nextStatus === "DELIVERED" ? "DELIVERED" : "IN_TRANSIT";
-  await prisma.order.updateMany({
-    where: { id: { in: route.orders.map((o) => o.id) } },
-    data: {
-      status: orderStatus as never,
-      // Starts the auto-release countdown (see
-      // src/app/api/cron/auto-release-escrow) — this app has no separate
-      // Order.deliveredAt, so escrowEligibleAt is the adapted equivalent.
-      ...(nextStatus === "DELIVERED" ? { escrowEligibleAt: new Date() } : {}),
-    },
-  });
+  if (nextStatus === "IN_TRANSIT") {
+    await prisma.order.updateMany({
+      where: { id: { in: route.orders.map((o) => o.id) } },
+      data: { status: "IN_TRANSIT" },
+    });
+  }
+  if (nextStatus === "DELIVERED") {
+    // Dock arrival is stamped by the SERVER — the buyer's device clock never
+    // starts or extends the 2-hour receiving inspection window.
+    const dockArrivalAt = new Date();
+    await prisma.order.updateMany({
+      where: { id: { in: route.orders.map((o) => o.id) } },
+      data: {
+        status: "DELIVERED",
+        dockArrivalAt,
+        receivingWindowEndsAt: new Date(dockArrivalAt.getTime() + 2 * 3600_000),
+        // Starts the auto-release countdown (see
+        // src/app/api/cron/auto-release-escrow).
+        escrowEligibleAt: dockArrivalAt,
+      },
+    });
+  }
 
   if (nextStatus === "DELIVERED") {
     for (const order of route.orders) {
@@ -620,87 +700,22 @@ export async function confirmDelivery(formData: FormData) {
 
   const order = await prisma.order.findUniqueOrThrow({
     where: { id: orderId },
-    include: { route: true, proofOfDelivery: true },
+    include: { inspection: true },
   });
   if (order.buyerId !== user.id) throw new Error("Not your order.");
-  if (order.status !== "DELIVERED") throw new Error("Order is not yet delivered.");
-  if (!order.proofOfDelivery) {
-    throw new Error("No proof of delivery on record for this order.");
+
+  // Quick "accept everything" path — shares the exact settlement service the
+  // dockside Receiving modal / POST /api/buyers/orders/:id/confirm-receipt use
+  // (src/lib/settlement.ts#applyReceipt): buyer/status/POD checks, the
+  // compare-and-swap idempotency guard, payouts, cooperative deductions,
+  // wallet accounting, invoices and the EscrowEvent audit row.
+  const baseline = order.inspection?.actualPickupWeightKg ?? order.volumeKg;
+  try {
+    await applyReceipt(orderId, user.id, { acceptedWeightKg: baseline, disputedWeightKg: 0, dockPhotoUrls: [] });
+  } catch (err) {
+    if (err instanceof SettlementError) throw new Error(err.message);
+    throw err;
   }
-
-  const claimed = await prisma.order.updateMany({
-    where: { id: order.id, status: "DELIVERED", escrowStatus: "HELD" },
-    data: { status: "SETTLED", escrowStatus: "RELEASED" },
-  });
-  if (claimed.count === 0) {
-    // Already settled through another path (retry, or raced with
-    // auto-release/admin release) — not an error, just a no-op.
-    return;
-  }
-
-  // Settlement pays out three ways from the escrowed grand total, using the
-  // rates/amounts snapshotted onto the order at creation time (never
-  // recomputed here) — see src/lib/commission.ts.
-  // Pre-migration orders may not have a snapshot yet; fall back to the full
-  // gross amount for the seller so nothing silently pays out ₱0.
-  //
-  // NOTE (flagged, per user decision — gateway/webhook work out of scope for
-  // now): paymentProvider is still MockPaymentProvider (src/lib/payments.ts)
-  // — it always resolves. When a real gateway is wired up, this call should
-  // become claim -> call gateway -> confirm-or-compensate (e.g. an
-  // intermediate escrowStatus like "RELEASING" that rolls back to "HELD" on
-  // gateway failure), since right now the DB is already marked
-  // SETTLED/RELEASED above before the (currently infallible) gateway call.
-  const netPayoutToSeller = order.netPayoutToSellerPHP ?? order.totalAmount;
-
-  await paymentProvider.releaseFunds({
-    orderId: order.id,
-    amount: netPayoutToSeller,
-    sellerId: order.sellerId,
-  });
-
-  if (order.haulerPayoutAmountPHP && order.route) {
-    await paymentProvider.payHauler({
-      orderId: order.id,
-      amount: order.haulerPayoutAmountPHP,
-      haulerId: order.route.haulerId,
-    });
-  }
-
-  await prisma.escrowEvent.create({
-    data: {
-      orderId: order.id,
-      fromStatus: "DELIVERED",
-      toStatus: "SETTLED",
-      triggeredBy: user.id,
-      triggerType: "BUYER_CONFIRM",
-      metadata: { proofOfDeliveryId: order.proofOfDelivery.id },
-    },
-  });
-
-  await prisma.proofOfDelivery.update({
-    where: { orderId: order.id },
-    data: { confirmedByBuyer: true },
-  });
-
-  // No-op unless this order was funded via ANI-Wallet at checkout (looks up
-  // its own HOLD transaction by orderId — see src/lib/wallet.ts).
-  await prisma.$transaction((tx) => walletReleaseForOrder(tx, order.id));
-
-  await prisma.reputationEvent.create({
-    data: { userId: order.sellerId, orderId: order.id, type: "ON_TIME", delta: 5 },
-  });
-  await prisma.reputationEvent.create({
-    data: { userId: order.buyerId, orderId: order.id, type: "ON_TIME", delta: 2 },
-  });
-  await prisma.user.update({
-    where: { id: order.sellerId },
-    data: { reputationScore: { increment: 5 } },
-  });
-  await prisma.user.update({
-    where: { id: order.buyerId },
-    data: { reputationScore: { increment: 2 } },
-  });
 
   revalidatePath(`/buyer/order/${order.id}`);
   revalidatePath("/buyer/dashboard");
@@ -775,6 +790,9 @@ export async function flagDispute(formData: FormData) {
   }
   const orderId = String(formData.get("orderId"));
   const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  // Only an order whose funds are still fully held can be disputed whole; a
+  // partially-released order is already in dockside dispute mediation.
+  if (order.escrowStatus !== "HELD") throw new Error("This order's settlement has already been (partly) released.");
 
   await prisma.order.update({ where: { id: order.id }, data: { status: "DISPUTED" } });
   await prisma.reputationEvent.create({
@@ -806,8 +824,9 @@ export async function resolveDispute(formData: FormData) {
   await requireUser("ADMIN");
   const orderId = String(formData.get("orderId"));
 
-  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { settlementDispute: true } });
   if (order.status !== "DISPUTED") throw new Error("Order is not disputed.");
+  if (order.settlementDispute) throw new Error("This order is in dockside dispute mediation (/admin/disputes).");
 
   await prisma.order.update({
     where: { id: order.id },
@@ -837,8 +856,9 @@ export async function initiateDisputeRelease(formData: FormData) {
   const admin = await requireUser("ADMIN");
   const orderId = String(formData.get("orderId"));
 
-  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { settlementDispute: true } });
   if (order.status !== "DISPUTED") throw new Error("Order is not disputed.");
+  if (order.settlementDispute) throw new Error("This order is in dockside dispute mediation (/admin/disputes).");
 
   const existing = await prisma.disputeReleaseRequest.findFirst({
     where: { orderId, status: "PENDING" },
@@ -883,47 +903,25 @@ export async function approveDisputeRelease(formData: FormData) {
   const order = request.order;
   if (order.status !== "DISPUTED") throw new Error("Order is no longer disputed.");
 
-  // Same CAS idempotency pattern as confirmDelivery — only one release path
-  // can ever win the race for a given order.
-  const claimed = await prisma.order.updateMany({
-    where: { id: order.id, status: "DISPUTED", escrowStatus: "HELD" },
-    data: { status: "SETTLED", escrowStatus: "RELEASED" },
+  // Shared settlement service: compare-and-swap idempotency guard, seller/
+  // cooperative payout routing, hauler payout, wallet accounting, invoices and
+  // the EscrowEvent audit row — identical to every other release path.
+  const released = await releaseFullSettlement(order.id, {
+    triggerType: "ADMIN_DUAL_APPROVAL",
+    actorId: admin.id,
+    fromStatus: "DISPUTED",
+    metadata: { openedBy: request.openedBy, approvedBy: admin.id, requestId: request.id },
   });
-  if (claimed.count === 0) {
+  if (!released) {
     await prisma.disputeReleaseRequest.update({
       where: { id: request.id },
       data: { status: "REJECTED", decidedAt: new Date() },
     });
     throw new Error("This order was already settled through another path.");
   }
-
-  const netPayoutToSeller = order.netPayoutToSellerPHP ?? order.totalAmount;
-  await paymentProvider.releaseFunds({
-    orderId: order.id,
-    amount: netPayoutToSeller,
-    sellerId: order.sellerId,
-  });
-  if (order.haulerPayoutAmountPHP && order.route) {
-    await paymentProvider.payHauler({
-      orderId: order.id,
-      amount: order.haulerPayoutAmountPHP,
-      haulerId: order.route.haulerId,
-    });
-  }
-
   await prisma.disputeReleaseRequest.update({
     where: { id: request.id },
     data: { status: "APPROVED", approvedBy: admin.id, decidedAt: new Date() },
-  });
-  await prisma.escrowEvent.create({
-    data: {
-      orderId: order.id,
-      fromStatus: "DISPUTED",
-      toStatus: "SETTLED",
-      triggeredBy: admin.id,
-      triggerType: "ADMIN_DUAL_APPROVAL",
-      metadata: { openedBy: request.openedBy, approvedBy: admin.id, requestId: request.id },
-    },
   });
   await prisma.reputationEvent.create({
     data: { userId: order.sellerId, orderId: order.id, type: "RESOLVED", delta: 2 },
@@ -1018,10 +1016,12 @@ export async function runAutoReleaseSweep(): Promise<void> {
 export async function setHaulerRefrigeratedVehicle(formData: FormData) {
   const user = await requireUser("HAULER");
   const hasRefrigeratedVehicle = formData.get("hasRefrigeratedVehicle") === "on";
+  const vt = String(formData.get("vehicleType") ?? "");
+  const vehicleType = (["TEN_WHEELER", "FORWARD_6W", "CANTER_4W", "VAN_L300"] as const).find((v) => v === vt) ?? null;
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { hasRefrigeratedVehicle },
+    data: { hasRefrigeratedVehicle, vehicleType },
   });
 
   revalidatePath("/hauler/dashboard");

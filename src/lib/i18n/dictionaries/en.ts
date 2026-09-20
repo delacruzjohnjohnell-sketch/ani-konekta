@@ -97,6 +97,7 @@ const en = {
   "order.status.MATCHED": "Matched",
   "order.status.ORDERED_ESCROWED": "Escrowed — Waiting for Pool",
   "order.status.POOLED": "Pooled for Delivery",
+  "order.status.INSPECTED_PICKUP": "Inspected at Pickup",
   "order.status.IN_TRANSIT": "In Transit",
   "order.status.DELIVERED": "Delivered",
   "order.status.SETTLED": "Settled",
@@ -112,6 +113,7 @@ const en = {
   "escrow.HELD": "Held",
   "escrow.RELEASED": "Released",
   "escrow.REFUNDED": "Refunded",
+  "escrow.PARTIALLY_RELEASED": "Partially released",
 
   // --- Quality tags ---
   "quality.STANDARD": "Standard",

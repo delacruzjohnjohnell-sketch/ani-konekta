@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "([ \"$VERCEL_ENV\" != \"production\" ] || (npx prisma db push --skip-generate && npx tsx prisma/ensure-default-commission-config.ts)) && next build",
+    "build": "([ \"$VERCEL_ENV\" != \"production\" ] || (npx prisma db push --skip-generate && npx tsx prisma/ensure-default-commission-config.ts && npx tsx prisma/ensure-freight-tariffs.ts && npx tsx prisma/apply-revision-constraints.ts)) && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",

@@ -16,7 +16,8 @@ const ROLE_PREFIXES: Record<string, string[]> = {
   "/buyer": ["BUYER"],
   "/hauler": ["HAULER"],
   "/admin": ["ADMIN"],
-  "/messages": ["BUYER", "SELLER"],
+  "/cooperative": ["COOPERATIVE_ADMIN"],
+  "/messages": ["BUYER", "SELLER", "COOPERATIVE_ADMIN"],
 };
 
 export default async function proxy(request: NextRequest) {
@@ -64,6 +65,7 @@ export const config = {
     "/buyer/:path*",
     "/hauler/:path*",
     "/admin/:path*",
+    "/cooperative/:path*",
     "/messages/:path*",
   ],
 };

@@ -2,7 +2,7 @@
 
 import { useCart } from "@/lib/cart/cart-context";
 import { checkoutCart, type CheckoutCartState } from "@/app/actions";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatPeso } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -10,18 +10,48 @@ import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { useT } from "@/lib/i18n/client";
 
-const PREVIEW_LOGISTICS_FEE_PERCENT = 2; // matches the platform default rate; real fee is locked in server-side at checkout
+type FreightEstimate = { total: number } | { error: string } | null;
 
 export function CartDrawer({
   onClose,
   walletBalancePHP,
+  net30Eligible = false,
 }: {
   onClose: () => void;
   walletBalancePHP: number;
+  net30Eligible?: boolean;
 }) {
   const { lines, updateQty, removeItem, clear } = useCart();
   const t = useT();
-  const [fundingSource, setFundingSource] = useState<"ESCROW" | "WALLET">("ESCROW");
+  const [fundingSource, setFundingSource] = useState<"ESCROW" | "WALLET" | "NET30">("ESCROW");
+  const [freightEst, setFreightEst] = useState<FreightEstimate>(null);
+  const linesKey = JSON.stringify(lines.map((l) => [l.listingId, l.qtyKg]));
+
+  // Live freight preview from the current DB tariff (same quote checkout uses); the
+  // authoritative figure is snapshotted server-side when the order is created.
+  useEffect(() => {
+    if (lines.length === 0) return;
+    const ctrl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/freight/estimate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lines: lines.map((l) => ({ listingId: l.listingId, qtyKg: l.qtyKg })) }),
+          signal: ctrl.signal,
+        });
+        const body = await res.json().catch(() => ({}));
+        setFreightEst(res.ok ? { total: Number(body.freightTotal) || 0 } : { error: body.error ?? "Freight estimate unavailable." });
+      } catch {
+        if (!ctrl.signal.aborted) setFreightEst({ error: "Freight estimate unavailable." });
+      }
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linesKey]);
   const [state, formAction] = useActionState<CheckoutCartState, FormData>(
     checkoutCart,
     null
@@ -32,7 +62,7 @@ export function CartDrawer({
   }
 
   const subtotal = lines.reduce((s, l) => s + l.qtyKg * l.pricePerKg, 0);
-  const estLogisticsFee = (subtotal * PREVIEW_LOGISTICS_FEE_PERCENT) / 100;
+  const estLogisticsFee = freightEst && "total" in freightEst ? freightEst.total : 0;
   const estGrandTotal = subtotal + estLogisticsFee;
 
   // Rendered via a portal straight into <body> — nested inside the navbar's
@@ -154,6 +184,24 @@ export function CartDrawer({
                   {t("cart.fundingSource.walletBalance", { balance: formatPeso(walletBalancePHP) })}
                 </p>
               )}
+              {net30Eligible && (
+                <>
+                  <label className="flex items-center gap-2 text-sm text-neutral-700">
+                    <input
+                      type="radio"
+                      name="fundingSourceChoice"
+                      checked={fundingSource === "NET30"}
+                      onChange={() => setFundingSource("NET30")}
+                    />
+                    Net-30 invoice
+                  </label>
+                  {fundingSource === "NET30" && (
+                    <p className="pl-6 text-xs text-neutral-500">
+                      Invoice terms for approved institutional accounts, within your credit limit. Funds are not held in escrow up front.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between text-neutral-600">
@@ -162,8 +210,9 @@ export function CartDrawer({
               </div>
               <div className="flex justify-between text-neutral-500">
                 <span>{t("cart.estLogisticsFee")}</span>
-                <span>{formatPeso(estLogisticsFee)}</span>
+                <span>{freightEst === null ? "…" : "error" in freightEst ? "—" : formatPeso(estLogisticsFee)}</span>
               </div>
+              {freightEst && "error" in freightEst && <p className="text-xs text-red-600">{freightEst.error}</p>}
               <div className="flex justify-between border-t border-black/10 pt-1 font-semibold text-brand-green-700">
                 <span>{t("cart.estGrandTotal")}</span>
                 <span>{formatPeso(estGrandTotal)}</span>

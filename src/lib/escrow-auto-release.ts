@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { paymentProvider } from "@/lib/payments";
+import { releaseFullSettlement } from "@/lib/settlement";
 
 // FEATURE 1 — Escrow Release Lockdown, trigger #2 (AUTO_TIMEOUT). Judgment
 // call confirmed with the user: 24 hours (their prompt's own MVP suggestion
@@ -42,41 +42,19 @@ export async function sweepAutoReleaseEligibleOrders(): Promise<AutoReleaseResul
 
   for (const order of eligible) {
     try {
-      // Same CAS idempotency pattern as confirmDelivery/approveDisputeRelease
-      // — only one of the three trigger paths can ever win the race.
-      const claimed = await prisma.order.updateMany({
-        where: { id: order.id, status: "DELIVERED", escrowStatus: "HELD" },
-        data: { status: "SETTLED", escrowStatus: "RELEASED" },
+      // Shared settlement service (src/lib/settlement.ts): same compare-and-swap
+      // idempotency guard, cooperative/seller payout routing, wallet accounting,
+      // invoices and EscrowEvent audit row as every other release path.
+      const released = await releaseFullSettlement(order.id, {
+        triggerType: "AUTO_TIMEOUT",
+        actorId: "SYSTEM",
+        fromStatus: "DELIVERED",
+        metadata: { windowMs: AUTO_RELEASE_WINDOW_MS },
       });
-      if (claimed.count === 0) {
+      if (!released) {
         results.push({ orderId: order.id, released: false, error: "raced with another release path" });
         continue;
       }
-
-      const netPayoutToSeller = order.netPayoutToSellerPHP ?? order.totalAmount;
-      await paymentProvider.releaseFunds({
-        orderId: order.id,
-        amount: netPayoutToSeller,
-        sellerId: order.sellerId,
-      });
-      if (order.haulerPayoutAmountPHP && order.route) {
-        await paymentProvider.payHauler({
-          orderId: order.id,
-          amount: order.haulerPayoutAmountPHP,
-          haulerId: order.route.haulerId,
-        });
-      }
-
-      await prisma.escrowEvent.create({
-        data: {
-          orderId: order.id,
-          fromStatus: "DELIVERED",
-          toStatus: "SETTLED",
-          triggeredBy: "SYSTEM",
-          triggerType: "AUTO_TIMEOUT",
-          metadata: { windowMs: AUTO_RELEASE_WINDOW_MS },
-        },
-      });
       await prisma.reputationEvent.create({
         data: { userId: order.sellerId, orderId: order.id, type: "ON_TIME", delta: 5 },
       });

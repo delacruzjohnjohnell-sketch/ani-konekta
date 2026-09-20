@@ -8,21 +8,27 @@ import { LanguageToggle } from "@/components/language-toggle";
 import { CartIcon } from "@/components/buyer/cart-icon";
 import { countUnreadForUser } from "@/lib/messaging";
 import { getOrCreateWallet } from "@/lib/wallet";
+import { isNet30Approved } from "@/lib/credit";
 
 const ROLE_HOME: Record<string, string> = {
   SELLER: "/seller/dashboard",
   BUYER: "/buyer/dashboard",
   HAULER: "/hauler/dashboard",
   ADMIN: "/admin",
+  COOPERATIVE_ADMIN: "/cooperative/dashboard",
 };
 
 export async function Navbar() {
   const [session, locale] = await Promise.all([auth(), getLocale()]);
-  const canMessage = session?.user?.role === "BUYER" || session?.user?.role === "SELLER";
+  const canMessage =
+    session?.user?.role === "BUYER" ||
+    session?.user?.role === "SELLER" ||
+    session?.user?.role === "COOPERATIVE_ADMIN";
   const isBuyer = session?.user?.role === "BUYER";
-  const [unreadCount, wallet] = await Promise.all([
+  const [unreadCount, wallet, net30Eligible] = await Promise.all([
     canMessage ? countUnreadForUser(session!.user.id, session!.user.role) : 0,
     isBuyer ? getOrCreateWallet(session!.user.id) : null,
+    isBuyer ? isNet30Approved(session!.user.id) : false,
   ]);
 
   return (
@@ -84,7 +90,7 @@ export async function Navbar() {
                 </Link>
               )}
               {session.user.role === "BUYER" && (
-                <CartIcon walletBalancePHP={wallet?.availableBalancePHP ?? 0} />
+                <CartIcon walletBalancePHP={wallet?.availableBalancePHP ?? 0} net30Eligible={net30Eligible} />
               )}
               <LanguageToggle currentLocale={locale} />
               <form

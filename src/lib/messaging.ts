@@ -59,7 +59,7 @@ export async function markConversationRead(conversationId: string, userId: strin
   const conversation = await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId } });
   const isParticipant =
     (role === "BUYER" && conversation.buyerId === userId) ||
-    (role === "SELLER" && conversation.sellerId === userId);
+    (role !== "BUYER" && conversation.sellerId === userId); // SELLER or COOPERATIVE_ADMIN
   if (!isParticipant) throw new Error("Not a participant in this conversation.");
 
   await prisma.conversation.update({

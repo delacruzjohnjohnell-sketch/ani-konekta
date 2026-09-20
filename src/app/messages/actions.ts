@@ -21,9 +21,9 @@ export async function startConversation(formData: FormData) {
   const orderId = String(formData.get("orderId") ?? "") || null;
 
   const buyerId = user.role === "BUYER" ? user.id : counterpartId;
-  const sellerId = user.role === "SELLER" ? user.id : counterpartId;
-  if (user.role !== "BUYER" && user.role !== "SELLER") {
-    throw new Error("Only buyers and sellers can message each other.");
+  const sellerId = user.role === "BUYER" ? counterpartId : user.id;
+  if (user.role !== "BUYER" && user.role !== "SELLER" && user.role !== "COOPERATIVE_ADMIN") {
+    throw new Error("Only buyers and sellers (or cooperative admins) can message each other.");
   }
 
   const conversation = await getOrCreateConversation(buyerId, sellerId, orderId);

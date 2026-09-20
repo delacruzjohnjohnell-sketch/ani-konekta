@@ -1,13 +1,14 @@
 /**
- * STUB — Payment provider interface (escrow simulation).
+ * STUB — Third-party settlement provider interface (SIMULATED).
  *
- * No real payment gateway is wired up for the MVP. `MockPaymentProvider`
- * simulates "holding" and "releasing" funds by just resolving immediately
- * and logging — the real escrow bookkeeping lives in Order.escrowStatus
- * (HELD | RELEASED | REFUNDED) in the database, which IS real and
- * auditable. Swap `MockPaymentProvider` for a `PayMongoProvider` /
- * `GCashProvider` implementing the same interface in Phase 2 without
- * touching any calling code.
+ * ANI-KONEKTA does not hold, custody or move real funds. Holding and releasing
+ * money is delegated to a licensed third-party settlement provider; none is
+ * connected yet, so `MockPaymentProvider` just resolves immediately and logs.
+ * The bookkeeping in Order.escrowStatus (HELD | PARTIALLY_RELEASED | RELEASED |
+ * REFUNDED), the wallet ledger and the audit trail IS real and auditable — it
+ * records what a connected provider would be instructed to do. Swap
+ * `MockPaymentProvider` for a `PayMongoProvider` / `GCashProvider` implementing
+ * the same interface without touching any calling code.
  */
 
 export interface PaymentProvider {

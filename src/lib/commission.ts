@@ -116,19 +116,30 @@ function round2(n: number): number {
  *                    floored at minFeeFloorPHP (a reporting floor — it does
  *                    not claw back from the seller's or hauler's payout).
  */
+/** Freight components supplied by the commodity tariff engine (src/lib/freight.ts). */
+export interface FreightOverride {
+  grossFreight: number;
+  haulerPayout: number;
+  haulerSharePct: number; // 0-1
+}
+
 export function computeCommissionBreakdown(
   config: CommissionConfigLike,
-  producePriceAmountPHP: number
+  producePriceAmountPHP: number,
+  freight?: FreightOverride
 ): CommissionBreakdown {
   const sellerCommissionAmountPHP = round2(
     (producePriceAmountPHP * config.sellerCommissionRatePercent) / 100
   );
-  const logisticsFeeAmountPHP = round2(
-    (producePriceAmountPHP * config.buyerLogisticsFeePercent) / 100
-  );
-  const haulerPayoutAmountPHP = round2(
-    (logisticsFeeAmountPHP * config.haulerPayoutPercentOfLogisticsFee) / 100
-  );
+  // When the commodity tariff engine supplies freight, it REPLACES the old
+  // percentage-of-produce logistics fee (kept only for callers/tests that
+  // pass no freight, e.g. scripts/test-commission.ts).
+  const logisticsFeeAmountPHP = freight
+    ? round2(freight.grossFreight)
+    : round2((producePriceAmountPHP * config.buyerLogisticsFeePercent) / 100);
+  const haulerPayoutAmountPHP = freight
+    ? round2(freight.haulerPayout)
+    : round2((logisticsFeeAmountPHP * config.haulerPayoutPercentOfLogisticsFee) / 100);
   const platformLogisticsMarginAmountPHP = round2(
     logisticsFeeAmountPHP - haulerPayoutAmountPHP
   );
@@ -143,8 +154,19 @@ export function computeCommissionBreakdown(
   return {
     commissionConfigId: config.id,
     appliedSellerCommissionRatePercent: config.sellerCommissionRatePercent,
-    appliedBuyerLogisticsFeePercent: config.buyerLogisticsFeePercent,
-    appliedHaulerPayoutPercent: config.haulerPayoutPercentOfLogisticsFee,
+    // With tariff freight these record the EFFECTIVE values for the order
+    // (fee as % of produce; hauler share of the gross freight) — the exact
+    // tariff used is frozen in Order.freightSnapshot.
+    appliedBuyerLogisticsFeePercent: freight
+      ? producePriceAmountPHP > 0
+        ? round2((logisticsFeeAmountPHP / producePriceAmountPHP) * 100)
+        : 0
+      : config.buyerLogisticsFeePercent,
+    appliedHaulerPayoutPercent: freight
+      ? logisticsFeeAmountPHP > 0
+        ? round2((haulerPayoutAmountPHP / logisticsFeeAmountPHP) * 100)
+        : 0
+      : config.haulerPayoutPercentOfLogisticsFee,
     minFeeFloorPHP: config.minFeeFloorPHP,
     producePriceAmountPHP: round2(producePriceAmountPHP),
     sellerCommissionAmountPHP,
@@ -206,16 +228,18 @@ export async function resolveCommissionForOrder(
   cropType: string,
   volumeKg: number,
   producePriceAmountPHP: number,
-  at: Date = new Date()
+  at: Date = new Date(),
+  freight?: FreightOverride
 ): Promise<CommissionBreakdown> {
   const configs = await getActiveCommissionConfigs(at);
   const config = selectApplicableCommissionConfig(configs, cropType, volumeKg);
   if (!config) {
     const breakdown = computeCommissionBreakdown(
       { ...FALLBACK_COMMISSION_CONFIG, id: "" },
-      producePriceAmountPHP
+      producePriceAmountPHP,
+      freight
     );
     return { ...breakdown, commissionConfigId: null };
   }
-  return computeCommissionBreakdown(config, producePriceAmountPHP);
+  return computeCommissionBreakdown(config, producePriceAmountPHP, freight);
 }

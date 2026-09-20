@@ -101,6 +101,7 @@ const tl: Record<DictionaryKey, string> = {
   "order.status.MATCHED": "Na-match",
   "order.status.ORDERED_ESCROWED": "Naka-Escrow — Hinihintay ang Pool",
   "order.status.POOLED": "Naka-pool para sa Delivery",
+  "order.status.INSPECTED_PICKUP": "Na-inspeksyon sa Pickup",
   "order.status.IN_TRANSIT": "Nasa Biyahe",
   "order.status.DELIVERED": "Na-deliver",
   "order.status.SETTLED": "Nabayaran na",
@@ -116,6 +117,7 @@ const tl: Record<DictionaryKey, string> = {
   "escrow.HELD": "Naka-hawak",
   "escrow.RELEASED": "Na-release na",
   "escrow.REFUNDED": "Na-refund",
+  "escrow.PARTIALLY_RELEASED": "Bahagyang na-release",
 
   // --- Quality tags ---
   "quality.STANDARD": "Standard",

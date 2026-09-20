@@ -28,7 +28,7 @@ export default async function AdminPage() {
       }),
       prisma.order.findMany({
         where: { status: "DISPUTED" },
-        include: { listing: true, buyer: true, seller: true },
+        include: { listing: true, buyer: true, seller: true, settlementDispute: true },
       }),
       prisma.order.findMany({
         where: { escrowStatus: "HELD" },
@@ -97,6 +97,21 @@ export default async function AdminPage() {
           </Link>
           <Link href="/admin/commission">
             <Button variant="outline">Manage commission rules →</Button>
+          </Link>
+          <Link href="/admin/tariffs">
+            <Button variant="outline">Freight tariffs →</Button>
+          </Link>
+          <Link href="/admin/disputes">
+            <Button variant="outline">Dispute mediation →</Button>
+          </Link>
+          <Link href="/admin/dispatch">
+            <Button variant="outline">Dispatch engine →</Button>
+          </Link>
+          <Link href="/admin/offline-desk">
+            <Button variant="outline">Offline listing desk →</Button>
+          </Link>
+          <Link href="/admin/buyers">
+            <Button variant="outline">Buyer credit →</Button>
           </Link>
         </div>
       </div>
@@ -284,7 +299,7 @@ export default async function AdminPage() {
             {legacyPhotos.listings.map((l) => (
               <div key={l.id} className="rounded-lg border border-red-200 bg-red-50/40 p-3 text-sm">
                 <p className="font-medium text-neutral-900">
-                  Listing {l.id.slice(-8)} · {l.cropType} (seller {l.sellerId.slice(-8)})
+                  Listing {l.id.slice(-8)} · {l.cropType} (owner {(l.sellerId ?? "cooperative").slice(-8)})
                 </p>
                 <p className="truncate text-neutral-500">{l.photoBlobKey}</p>
               </div>
@@ -320,6 +335,13 @@ export default async function AdminPage() {
                 </p>
                 <p className="text-sm text-neutral-500">{formatPeso(o.totalAmount)}</p>
               </div>
+              {o.settlementDispute ? (
+                <Link href="/admin/disputes">
+                  <Button variant="outline" size="sm">
+                    Dockside partial dispute — open mediation →
+                  </Button>
+                </Link>
+              ) : (
               <div className="flex flex-wrap gap-2">
                 <form action={resolveDispute}>
                   <input type="hidden" name="orderId" value={o.id} />
@@ -341,6 +363,7 @@ export default async function AdminPage() {
                   </Button>
                 </form>
               </div>
+              )}
             </div>
           ))}
         </CardContent>

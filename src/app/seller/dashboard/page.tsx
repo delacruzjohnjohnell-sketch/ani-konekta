@@ -9,6 +9,9 @@ import { ListingPricePreview } from "@/components/listing-price-preview";
 import { ActionForm } from "@/components/ui/action-form";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { EditListingForm } from "@/components/seller/edit-listing-form";
+import { CommodityFields } from "@/components/listing/commodity-fields";
+import { PendingSignoffs } from "@/components/gate-pass/pending-signoffs";
+import { PriceBenchmarks } from "@/components/seller/price-benchmarks";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { createListing, deleteListing } from "@/app/actions";
 import { DeleteListingButton } from "@/components/ui/delete-listing-button";
@@ -104,6 +107,10 @@ export default async function SellerDashboard() {
 
       <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
 
+      <PendingSignoffs sellerId={userId} />
+
+      <PriceBenchmarks />
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -149,6 +156,7 @@ export default async function SellerDashboard() {
                 <Input id="minOrderQtyKg" name="minOrderQtyKg" type="number" min="0" step="0.1" />
                 <p className="mt-1 text-xs text-neutral-400">{t("seller.field.minOrderQtyHint", locale)}</p>
               </div>
+              <CommodityFields idPrefix="sd" />
               <div className="flex items-start gap-2 rounded-lg border border-black/10 bg-neutral-50 p-3">
                 <input
                   id="requiresColdChain"
@@ -240,6 +248,13 @@ export default async function SellerDashboard() {
                             minOrderQtyKg: l.minOrderQtyKg,
                             description: l.description,
                             requiresColdChain: l.requiresColdChain,
+                            cropCategory: l.cropCategory,
+                            isGrainWet: l.isGrainWet,
+                            moistureContentPercent: l.moistureContentPercent,
+                            grainGrade: l.grainGrade,
+                            produceClass: l.produceClass,
+                            packagingType: l.packagingType,
+                            harvestTimestamp: l.harvestTimestamp,
                           }}
                           municipalities={MUNICIPALITIES}
                         />

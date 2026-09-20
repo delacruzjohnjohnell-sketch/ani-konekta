@@ -111,6 +111,58 @@ export async function walletReleaseForOrder(tx: Tx, orderId: string) {
 }
 
 /**
+ * Dockside PARTIAL acceptance: releases everything from the buyer's
+ * Protected balance except `heldMerchandisePHP` (the disputed fraction),
+ * which stays Protected until mediation resolves it. No-op for orders that
+ * weren't wallet-funded.
+ */
+export async function walletPartialRelease(tx: Tx, orderId: string, heldMerchandisePHP: number) {
+  const hold = await tx.walletTransaction.findFirst({ where: { orderId, type: "HOLD" } });
+  if (!hold) return null;
+  const releaseNow = Math.max(0, Math.round((hold.amountPHP - heldMerchandisePHP + Number.EPSILON) * 100) / 100);
+  await tx.wallet.update({
+    where: { id: hold.walletId },
+    data: { protectedBalancePHP: { decrement: releaseNow } },
+  });
+  await tx.walletTransaction.create({
+    data: { walletId: hold.walletId, type: "RELEASE", amountPHP: releaseNow, orderId, note: "Partial acceptance — undisputed portion released" },
+  });
+  return hold;
+}
+
+/**
+ * Mediation outcome for the held fraction: `toSeller`+`refundToBuyer` leave
+ * Protected; the refund returns to the buyer's Available balance.
+ */
+export async function walletResolveHeld(
+  tx: Tx,
+  orderId: string,
+  amounts: { toSeller: number; refundToBuyer: number }
+) {
+  const hold = await tx.walletTransaction.findFirst({ where: { orderId, type: "HOLD" } });
+  if (!hold) return null;
+  const out = amounts.toSeller + amounts.refundToBuyer;
+  await tx.wallet.update({
+    where: { id: hold.walletId },
+    data: {
+      protectedBalancePHP: { decrement: out },
+      availableBalancePHP: { increment: amounts.refundToBuyer },
+    },
+  });
+  if (amounts.toSeller > 0) {
+    await tx.walletTransaction.create({
+      data: { walletId: hold.walletId, type: "RELEASE", amountPHP: amounts.toSeller, orderId, note: "Dispute resolved — released" },
+    });
+  }
+  if (amounts.refundToBuyer > 0) {
+    await tx.walletTransaction.create({
+      data: { walletId: hold.walletId, type: "REFUND", amountPHP: amounts.refundToBuyer, orderId, note: "Dispute resolved — refunded" },
+    });
+  }
+  return hold;
+}
+
+/**
  * Defined for symmetry with the existing (also-unwired) paymentProvider
  * .refundFunds — no dispute-resolution path calls either one today. Returns
  * Protected funds to Available if a wallet-funded order is ever refunded.

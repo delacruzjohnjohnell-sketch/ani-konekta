@@ -23,6 +23,9 @@ export default async function OrderPage({
       proofOfDelivery: true,
       route: { include: { orders: true, hauler: true } },
       ratings: true,
+      inspection: true,
+      receipt: true,
+      settlementDispute: true,
     },
   });
   if (!order) notFound();
