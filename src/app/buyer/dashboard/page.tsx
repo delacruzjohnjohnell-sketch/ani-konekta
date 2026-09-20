@@ -17,6 +17,7 @@ import { VerificationStatusCard } from "@/components/verification/verification-s
 import { getPublicVerificationBadge } from "@/lib/verification-badge";
 import { countUnreadHaulerMessages } from "@/lib/hauler-messaging";
 import { commodityQualitySummary } from "@/lib/commodity-labels";
+import { PageHeader } from "@/components/ui/stat-card";
 
 const MUNICIPALITIES = [
   "Cabanatuan City",
@@ -208,16 +209,17 @@ export default async function BuyerDashboard({
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t("buyer.title", locale)}</h1>
-          <p className="text-neutral-600">{t("buyer.subtitle", locale)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-sm text-neutral-500">{t("seller.yourRating", locale)}</p>
-          <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
-        </div>
-      </div>
+      <PageHeader
+        icon="🧺"
+        title={t("buyer.title", locale)}
+        subtitle={t("buyer.subtitle", locale)}
+        actions={
+          <div className="rounded-xl bg-white/80 px-3 py-2 text-right ring-1 ring-inset ring-brand-green-900/10">
+            <p className="text-xs text-neutral-500">{t("seller.yourRating", locale)}</p>
+            <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
+          </div>
+        }
+      />
 
       <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
 
@@ -291,10 +293,10 @@ export default async function BuyerDashboard({
               <Link
                 key={key}
                 href={{ pathname: "/buyer/dashboard", query: { ...params, source: key } }}
-                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`rounded-full border px-4 py-2 text-sm font-medium transition-all ${
                   source === key
-                    ? "border-brand-gold-600 bg-brand-gold-500 text-white"
-                    : "border-black/15 bg-white text-neutral-700 hover:border-brand-gold-600"
+                    ? "border-brand-green-700 bg-brand-green-700 text-white shadow-sm"
+                    : "border-neutral-300 bg-white text-neutral-700 hover:border-brand-green-600 hover:bg-brand-green-50"
                 }`}
               >
                 {label}

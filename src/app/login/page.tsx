@@ -66,7 +66,11 @@ function LoginForm() {
               required
             />
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <div role="alert" className="animate-pop-in rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? t("auth.login.submitting") : t("auth.login.submit")}
           </Button>

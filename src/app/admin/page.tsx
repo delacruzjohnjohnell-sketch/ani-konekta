@@ -83,10 +83,13 @@ export default async function AdminPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Admin overview</h1>
-          <p className="text-neutral-600">Order pipeline, disputes, and the escrow ledger.</p>
+      <div className="page-banner flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-brand-green-900/10 p-5 shadow-card sm:p-6">
+        <div className="flex min-w-0 items-center gap-4">
+          <span aria-hidden="true" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-green-600 to-brand-green-800 text-2xl text-white shadow-sm">🛡️</span>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold leading-tight tracking-tight text-brand-green-950 sm:text-3xl">Admin overview</h1>
+            <p className="mt-1 text-sm text-neutral-600 sm:text-base">Order pipeline, disputes, and the escrow ledger.</p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/admin/verification">
@@ -118,7 +121,7 @@ export default async function AdminPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {Object.entries(ORDER_STATUS_LABELS).map(([key, label], i) => (
-          <Card key={key} className="overflow-hidden">
+          <Card key={key} interactive className="overflow-hidden">
             <div
               className={
                 key === "DISPUTED"

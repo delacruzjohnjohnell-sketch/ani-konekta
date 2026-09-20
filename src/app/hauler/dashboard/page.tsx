@@ -18,6 +18,8 @@ import { HaulerChatPanel } from "@/components/order/hauler-chat-panel";
 import { GatePassForm } from "@/components/hauler/gate-pass-form";
 import { BackhaulFinder } from "@/components/hauler/backhaul-finder";
 import { aggregateTripFreight } from "@/lib/freight";
+import { PageHeader, ProgressBar } from "@/components/ui/stat-card";
+import { VEHICLE_CAPACITY_KG } from "@/lib/dispatch-engine";
 
 // Maps each RouteStatus to the ACTION that advances it, and which of the 3
 // user-facing steps (Pickup / In Transit / Delivered) it belongs to. The
@@ -127,12 +129,11 @@ export default async function HaulerDashboard({
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t("hauler.title", locale)}</h1>
-        </div>
-        <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />
-      </div>
+      <PageHeader
+        icon="🚚"
+        title={t("hauler.title", locale)}
+        actions={<StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} />}
+      />
 
       <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
 
@@ -150,7 +151,7 @@ export default async function HaulerDashboard({
               name="vehicleType"
               defaultValue={me.vehicleType ?? ""}
               aria-label="Vehicle type"
-              className="h-9 rounded-lg border border-black/15 bg-white px-2 text-sm"
+              className="h-9 rounded-lg border border-neutral-300 bg-white pl-2 pr-8 text-sm transition hover:border-neutral-400 focus:border-brand-green-600 focus:outline-none focus:ring-2 focus:ring-brand-green-600/25"
             >
               <option value="">Vehicle…</option>
               <option value="TEN_WHEELER">10-wheeler (12 t)</option>
@@ -332,13 +333,31 @@ export default async function HaulerDashboard({
               <Card key={r.id} className="overflow-hidden">
                 <div className="h-1.5 bg-gradient-to-r from-brand-green-500 to-brand-green-800" />
                 <CardContent className="space-y-3 p-4">
-                  <p className="text-lg font-bold text-neutral-900">
-                    {r.pickupPoints.join(", ")} → {dropoffMunicipalities.length > 0 ? dropoffMunicipalities.join(", ") : r.dropoffPoint}
+                  <p className="flex items-start gap-2 text-lg font-bold leading-snug text-brand-green-950">
+                    <span aria-hidden="true" className="mt-0.5 text-base">📍</span>
+                    <span className="min-w-0">
+                      {r.pickupPoints.join(", ")} <span className="text-brand-gold-600">→</span>{" "}
+                      {dropoffMunicipalities.length > 0 ? dropoffMunicipalities.join(", ") : r.dropoffPoint}
+                    </span>
                   </p>
-                  <p className="text-sm text-neutral-600">
-                    {cropTypes} · {totalLoad} kg
-                    {r.distanceKm != null && ` · ${r.distanceKm} km`}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone="green">🌾 {cropTypes}</Badge>
+                    <Badge tone="gray">⚖️ {totalLoad} kg</Badge>
+                    {r.distanceKm != null && <Badge tone="gold">🛣️ {r.distanceKm} km</Badge>}
+                    {(r.vehicleType ?? me.vehicleType) && <Badge tone="blue">🚚 {(r.vehicleType ?? me.vehicleType)!.replace(/_/g, " ")}</Badge>}
+                  </div>
+                  {(() => {
+                    const cap = r.capacityKg ?? (me.vehicleType ? VEHICLE_CAPACITY_KG[me.vehicleType] : null);
+                    if (!cap) return null;
+                    const pct = (totalLoad / cap) * 100;
+                    return (
+                      <ProgressBar
+                        value={pct}
+                        tone={pct < 60 ? "gold" : "green"}
+                        label={`Load ${totalLoad.toLocaleString()} of ${cap.toLocaleString()} kg · ${Math.round(pct)}% utilized`}
+                      />
+                    );
+                  })()}
 
                   {(r.status === "PICKED_UP" || r.status === "IN_TRANSIT") && (
                     <LocationPingSender routeId={r.id} />

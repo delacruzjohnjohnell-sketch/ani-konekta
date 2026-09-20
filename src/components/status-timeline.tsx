@@ -5,29 +5,30 @@ export function StatusTimeline({ status }: { status: string }) {
   const isDisputed = status === "DISPUTED";
 
   return (
-    <div className="w-full overflow-x-auto">
-      <ol className="flex min-w-max items-center">
+    <div className="w-full overflow-x-auto pb-1">
+      <ol className="flex min-w-max items-start">
         {ORDER_PIPELINE.map((step, i) => {
           const done = !isDisputed && i <= currentIndex;
           const active = !isDisputed && i === currentIndex;
+          const completed = done && !active;
           return (
-            <li key={step} className="flex items-center">
-              <div className="flex flex-col items-center gap-1">
+            <li key={step} className="flex items-start">
+              <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full border-2 text-[11px] font-semibold",
+                    "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold transition-colors",
                     done
                       ? "border-brand-green-700 bg-gradient-to-br from-brand-green-500 to-brand-green-800 text-white"
                       : "border-neutral-300 bg-white text-neutral-400",
-                    active && "ring-2 ring-brand-gold-500/50"
+                    active && "ring-4 ring-brand-gold-500/30"
                   )}
                 >
-                  {i + 1}
+                  {completed ? "✓" : i + 1}
                 </div>
                 <span
                   className={cn(
                     "w-20 text-center text-[11px] leading-tight",
-                    done ? "text-neutral-800 font-medium" : "text-neutral-400"
+                    done ? "font-medium text-brand-green-950" : "text-neutral-400"
                   )}
                 >
                   {ORDER_STATUS_LABELS[step]}
@@ -36,7 +37,8 @@ export function StatusTimeline({ status }: { status: string }) {
               {i < ORDER_PIPELINE.length - 1 && (
                 <div
                   className={cn(
-                    "mx-1 h-0.5 w-8 sm:w-12",
+                    // mt-[15px]: centres the connector on the 32px dot, not on the dot+label column.
+                    "mx-1 mt-[15px] h-0.5 w-8 rounded-full sm:w-12",
                     i < currentIndex ? "bg-brand-green-700" : "bg-neutral-200"
                   )}
                 />

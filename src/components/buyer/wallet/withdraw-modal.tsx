@@ -11,9 +11,9 @@ export function WithdrawModal({ onClose }: { onClose: () => void }) {
   const t = useT();
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+    <div className="animate-fade-in fixed inset-0 z-30 flex items-center justify-center bg-brand-green-950/40 p-4 backdrop-blur-[2px]" onClick={onClose}>
       <div
-        className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl"
+        className="animate-pop-in w-full max-w-sm rounded-2xl border border-brand-green-900/10 bg-white p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">

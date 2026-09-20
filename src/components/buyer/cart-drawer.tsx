@@ -72,9 +72,9 @@ export function CartDrawer({
   // full screen (found while checking mobile layout — reproduces at every
   // viewport width, not mobile-specific).
   return createPortal(
-    <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
+    <div className="animate-fade-in fixed inset-0 z-30 flex justify-end bg-brand-green-950/40 backdrop-blur-[2px]" onClick={onClose}>
       <div
-        className="flex h-full w-full max-w-md flex-col bg-white shadow-xl"
+        className="animate-slide-in-right flex h-full w-full max-w-md flex-col bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-black/10 p-4">

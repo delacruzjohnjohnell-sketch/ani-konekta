@@ -12,6 +12,7 @@ import { EditListingForm } from "@/components/seller/edit-listing-form";
 import { CommodityFields } from "@/components/listing/commodity-fields";
 import { PendingSignoffs } from "@/components/gate-pass/pending-signoffs";
 import { PriceBenchmarks } from "@/components/seller/price-benchmarks";
+import { PageHeader, StatCard } from "@/components/ui/stat-card";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { createListing, deleteListing } from "@/app/actions";
 import { DeleteListingButton } from "@/components/ui/delete-listing-button";
@@ -74,35 +75,21 @@ export default async function SellerDashboard() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-      <div>
-        <h1 className="text-2xl font-bold text-neutral-900">{t("seller.title", locale)}</h1>
-        <p className="text-neutral-600">{t("seller.welcome", locale, { name: me.name })}</p>
-      </div>
+      <PageHeader
+        icon="🌾"
+        title={t("seller.title", locale)}
+        subtitle={t("seller.welcome", locale, { name: me.name })}
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="overflow-hidden">
-          <div className="h-1.5 bg-gradient-to-r from-brand-green-500 to-brand-green-800" />
-          <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">{t("seller.settledEarnings", locale)}</p>
-            <p className="mt-1 text-2xl font-bold text-brand-green-700">{formatPeso(earnings)}</p>
-          </CardContent>
-        </Card>
-        <Card className="overflow-hidden">
-          <div className="h-1.5 bg-gradient-to-r from-brand-gold-400 to-brand-gold-700" />
-          <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">{t("seller.pendingEscrow", locale)}</p>
-            <p className="mt-1 text-2xl font-bold text-brand-gold-600">{formatPeso(pendingEscrow)}</p>
-          </CardContent>
-        </Card>
-        <Card className="overflow-hidden">
-          <div className="h-1.5 bg-gradient-to-r from-brand-green-500 via-brand-gold-400 to-brand-gold-700" />
-          <CardContent className="pt-5">
-            <p className="text-sm text-neutral-500">{t("seller.yourRating", locale)}</p>
-            <p className="mt-1">
-              <StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} size="lg" />
-            </p>
-          </CardContent>
-        </Card>
+        <StatCard icon="💰" tone="green" label={t("seller.settledEarnings", locale)} value={formatPeso(earnings)} />
+        <StatCard icon="🛡️" tone="gold" label={t("seller.pendingEscrow", locale)} value={formatPeso(pendingEscrow)} />
+        <StatCard
+          icon="⭐"
+          tone="neutral"
+          label={t("seller.yourRating", locale)}
+          value={<StarRatingDisplay sum={me.ratingSum} count={me.ratingCount} size="lg" />}
+        />
       </div>
 
       <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />

@@ -12,7 +12,7 @@ export function WalletActions() {
 
   return (
     <>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <Button onClick={() => setModal("add")}>{t("wallet.addMoney")}</Button>
         <Button variant="outline" onClick={() => setModal("withdraw")}>
           {t("wallet.withdraw")}

@@ -37,6 +37,9 @@ export type ListingCardData = {
   bulkMatchFormId?: string;
 };
 
+// Visual-only stock chip threshold: below this many kg the card shows "Low stock".
+const LOW_STOCK_KG = 200;
+
 const VERIFICATION_LABEL_KEY: Record<PublicVerificationBadge, string> = {
   KYC_VERIFIED: "buyer.verification.kycVerified",
   PENDING: "buyer.verification.pending",
@@ -90,16 +93,28 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
   }
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-black/10 bg-white shadow-sm transition-shadow hover:shadow-md">
-      <div className="relative aspect-[4/3] w-full bg-brand-green-50">
+    <div className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-brand-green-900/10 bg-white shadow-card transition duration-200 hover:-translate-y-0.5 hover:border-brand-green-700/25 hover:shadow-lift">
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-gradient-to-br from-brand-green-50 to-brand-gold-50">
         {listing.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={listing.photoUrl} alt={listing.cropType} className="h-full w-full object-cover" />
+          <img src={listing.photoUrl} alt={listing.cropType} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-4xl">🌾</div>
+          <div className="flex h-full w-full items-center justify-center text-5xl">🌾</div>
         )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent" />
+        <span
+          className={`absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow-sm ${
+            listing.volumeKg < LOW_STOCK_KG ? "bg-brand-gold-100 text-brand-gold-900" : "bg-white/95 text-brand-green-800"
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className={`h-1.5 w-1.5 rounded-full ${listing.volumeKg < LOW_STOCK_KG ? "bg-brand-gold-500" : "bg-brand-green-500"}`}
+          />
+          {listing.volumeKg < LOW_STOCK_KG ? "Low stock" : "Available"}
+        </span>
         {listing.featuredLabel && (
-          <span className="absolute left-2 top-2 rounded-full bg-brand-gold-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow">
+          <span className="absolute left-2 top-2 rounded-full bg-brand-gold-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow">
             {t(FEATURED_LABEL_KEY[listing.featuredLabel])}
           </span>
         )}
@@ -115,8 +130,8 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-1.5 p-3">
-        <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-1 flex-col gap-2.5 p-4">
+        <div className="flex flex-wrap items-center gap-1.5">
           {listing.badges.map((b) => (
             <Badge key={b} tone={b === "TOP_SELLER" ? "gold" : "green"} className="text-[10px]">
               {t(BADGE_LABEL_KEY[b])}
@@ -129,17 +144,32 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
             {listing.ownerType === "COOPERATIVE" ? "Cooperative bulk lot" : "Direct smallholder"}
           </Badge>
         </div>
-        <p className="font-semibold text-neutral-900">
-          {listing.cropType}
-          {listing.variety ? ` — ${listing.variety}` : ""}
-        </p>
-        <p className="text-[11px] text-neutral-500">{listing.qualitySummary}</p>
-        <p className="text-xs text-neutral-500">
-          {t("buyer.listing.seller")}: {listing.sellerName} · {listing.municipality}
-        </p>
-        <div className="flex flex-wrap items-center gap-1">
+
+        <div className="min-w-0">
+          <p className="text-base font-semibold leading-snug text-brand-green-950">
+            {listing.cropType}
+            {listing.variety ? ` — ${listing.variety}` : ""}
+          </p>
+          <p className="mt-0.5 text-xs leading-snug text-neutral-500">{listing.qualitySummary}</p>
+        </div>
+
+        <div className="space-y-1 text-xs text-neutral-600">
+          <p className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="text-neutral-400">👤</span>
+            <span className="min-w-0 truncate">
+              {t("buyer.listing.seller")}: <span className="font-medium text-neutral-800">{listing.sellerName}</span>
+            </span>
+          </p>
+          <p className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="text-neutral-400">📍</span>
+            <span className="min-w-0 truncate">{listing.municipality}</span>
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
           <StarRatingDisplay sum={listing.sellerRatingSum} count={listing.sellerRatingCount} size="sm" />
           <Badge tone={VERIFICATION_TONE[listing.sellerVerification]} className="text-[10px]">
+            {listing.sellerVerification === "KYC_VERIFIED" && <span aria-hidden="true">✓</span>}
             {t(VERIFICATION_LABEL_KEY[listing.sellerVerification])}
           </Badge>
           {listing.requiresColdChain && (
@@ -148,43 +178,49 @@ export function ListingCard({ listing }: { listing: ListingCardData }) {
             </Badge>
           )}
         </div>
-        <p className="text-lg font-bold text-brand-green-700">
-          {formatPeso(listing.askingPricePerKg)}
-          <span className="text-xs font-normal text-neutral-500">/kg</span>
-        </p>
-        <p className="text-xs text-neutral-500">
-          {t("buyer.listing.availableStock")}: {listing.volumeKg} kg
-          {listing.minOrderQtyKg != null && ` · ${t("seller.minOrder")} ${listing.minOrderQtyKg} kg`}
-        </p>
 
-        <div className="mt-1 flex items-center gap-2">
-          <Input
-            type="number"
-            min={listing.minOrderQtyKg ?? 0.1}
-            max={listing.volumeKg}
-            step="0.1"
-            value={qty}
-            onChange={(e) => setQty(Number(e.target.value) || 0)}
-            className="h-8 w-20"
-          />
-          <Button variant="outline" size="sm" type="button" className="flex-1" onClick={handleAddToCart}>
-            {added ? "✓" : t("buyer.listing.addToCart")}
-          </Button>
+        <div className="rounded-xl bg-brand-green-50 px-3 py-2.5 ring-1 ring-inset ring-brand-green-700/10">
+          <p className="text-xl font-bold leading-none tracking-tight text-brand-green-700">
+            {formatPeso(listing.askingPricePerKg)}
+            <span className="ml-0.5 text-xs font-medium text-neutral-500">/kg</span>
+          </p>
+          <p className="mt-1.5 text-xs leading-snug text-neutral-600">
+            {t("buyer.listing.availableStock")}: <span className="font-semibold text-neutral-800">{listing.volumeKg} kg</span>
+            {listing.minOrderQtyKg != null && ` · ${t("seller.minOrder")} ${listing.minOrderQtyKg} kg`}
+          </p>
         </div>
 
-        <form action={placeOrder} className="mt-1">
-          <input type="hidden" name="listingId" value={listing.id} />
-          <Button type="submit" size="sm" className="w-full">
-            {t("buyer.listing.orderTotal", { total: formatPeso(total) })}
-          </Button>
-        </form>
+        <div className="mt-auto space-y-2 pt-1">
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={listing.minOrderQtyKg ?? 0.1}
+              max={listing.volumeKg}
+              step="0.1"
+              value={qty}
+              onChange={(e) => setQty(Number(e.target.value) || 0)}
+              aria-label="Quantity (kg)"
+              className="h-9 w-24 shrink-0 text-center"
+            />
+            <Button variant="outline" size="sm" type="button" className="min-w-0 flex-1" onClick={handleAddToCart}>
+              {added ? "✓" : t("buyer.listing.addToCart")}
+            </Button>
+          </div>
 
-        <form action={startConversation} className="mt-1">
-          <input type="hidden" name="counterpartId" value={listing.sellerId} />
-          <Button type="submit" variant="ghost" size="sm" className="w-full">
-            {t("messages.messageSeller")}
-          </Button>
-        </form>
+          <form action={placeOrder}>
+            <input type="hidden" name="listingId" value={listing.id} />
+            <Button type="submit" size="sm" className="w-full">
+              {t("buyer.listing.orderTotal", { total: formatPeso(total) })}
+            </Button>
+          </form>
+
+          <form action={startConversation}>
+            <input type="hidden" name="counterpartId" value={listing.sellerId} />
+            <Button type="submit" variant="ghost" size="sm" className="w-full">
+              {t("messages.messageSeller")}
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   );

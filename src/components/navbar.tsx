@@ -6,6 +6,7 @@ import { getLocale } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
 import { LanguageToggle } from "@/components/language-toggle";
 import { CartIcon } from "@/components/buyer/cart-icon";
+import { NavLinks } from "@/components/nav-links";
 import { countUnreadForUser } from "@/lib/messaging";
 import { getOrCreateWallet } from "@/lib/wallet";
 import { isNet30Approved } from "@/lib/credit";
@@ -32,7 +33,7 @@ export async function Navbar() {
   ]);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-black/10 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-20 border-b border-brand-green-900/10 bg-white/85 shadow-[0_1px_0_rgba(18,61,36,0.03)] backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <Image src="/logo.png" alt="ANI-KONEKTA" width={36} height={31} className="h-9 w-auto" priority />
@@ -44,21 +45,16 @@ export async function Navbar() {
         <nav className="flex items-center gap-2 sm:gap-3">
           {session?.user ? (
             <>
-              <Link
-                href={ROLE_HOME[session.user.role] ?? "/"}
-                className="hidden text-sm font-medium text-neutral-700 hover:text-brand-green-700 sm:inline"
-              >
-                {t("nav.myDashboard", locale)}
-              </Link>
-              <Link
-                href="/sms"
-                className="hidden text-sm font-medium text-neutral-700 hover:text-brand-green-700 sm:inline"
-              >
-                {t("nav.sms", locale)}
-              </Link>
-              <span className="hidden text-sm text-neutral-500 sm:inline">
-                {session.user.name} ·{" "}
-                <span className="font-medium text-brand-green-700">{session.user.role}</span>
+              <NavLinks
+                items={[
+                  { href: ROLE_HOME[session.user.role] ?? "/", label: t("nav.myDashboard", locale), icon: "home", mobile: true },
+                  { href: "/sms", label: t("nav.sms", locale), icon: "sms" },
+                ]}
+              />
+              <span className="hidden max-w-56 items-center gap-1.5 truncate rounded-full border border-brand-green-900/10 bg-brand-green-50 px-3 py-1 text-xs text-neutral-600 md:inline-flex">
+                <span className="truncate">{session.user.name}</span>
+                <span aria-hidden="true" className="text-neutral-300">·</span>
+                <span className="font-semibold text-brand-green-800">{session.user.role}</span>
               </span>
               {canMessage && (
                 <Link

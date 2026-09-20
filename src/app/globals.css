@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fffdf7;
-  --foreground: #16241c;
+  /* Soft green-tinted off-white page canvas (cards stay white so they lift off it). */
+  --background: #f3f6f1;
+  --foreground: #14261b;
+  --surface-tint: #eaf2e8;
+  --line: rgba(18, 61, 36, 0.12);
 
   /* Warm harvest palette, sampled from the ANI-KONEKTA logo (rice-leaf
      greens + golden grain amber). Keep these as the single source of
@@ -13,6 +16,7 @@
   --brand-green-700: #1e7a3d;
   --brand-green-600: #248f48;
   --brand-green-500: #2fa85a;
+  --brand-green-200: #c3e8cc;
   --brand-green-100: #e1f5e6;
   --brand-green-50: #f3fbf4;
 
@@ -24,13 +28,17 @@
   --brand-gold-200: #ffe1a3;
   --brand-gold-100: #fff3d6;
   --brand-gold-50: #fffaf0;
+
+  --shadow-card: 0 1px 2px rgba(18, 61, 36, 0.05), 0 8px 20px -10px rgba(18, 61, 36, 0.14);
+  --shadow-lift: 0 2px 4px rgba(18, 61, 36, 0.06), 0 14px 28px -12px rgba(18, 61, 36, 0.22);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface-tint: var(--surface-tint);
   --font-sans:
-    system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
@@ -40,6 +48,7 @@
   --color-brand-green-700: var(--brand-green-700);
   --color-brand-green-600: var(--brand-green-600);
   --color-brand-green-500: var(--brand-green-500);
+  --color-brand-green-200: var(--brand-green-200);
   --color-brand-green-100: var(--brand-green-100);
   --color-brand-green-50: var(--brand-green-50);
 
@@ -51,12 +60,55 @@
   --color-brand-gold-200: var(--brand-gold-200);
   --color-brand-gold-100: var(--brand-gold-100);
   --color-brand-gold-50: var(--brand-gold-50);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-lift: var(--shadow-lift);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background: var(--brand-green-200);
+    color: var(--brand-green-950);
+  }
+
+  /* Keyboard focus is always visible and on-brand. */
+  :focus-visible {
+    outline: 2px solid var(--brand-green-600);
+    outline-offset: 2px;
+  }
+
+  /* One consistent chevron for every single-select in the app. */
+  select:not([multiple]) {
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236b7280'><path d='M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    background-size: 1rem;
+  }
+
+  /* Long words / IDs must wrap instead of pushing layouts wider than the screen. */
+  main {
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Sunrise-over-the-ricefields gradient — echoes the sun + green fields in
@@ -73,4 +125,42 @@ body {
 
 .harvest-card-accent {
   background: linear-gradient(135deg, var(--brand-gold-400), var(--brand-gold-600));
+}
+
+/* Page-header banner: soft green tint with a faint sun glow and field-row pattern. */
+.page-banner {
+  background:
+    radial-gradient(ellipse 45% 120% at 100% 0%, rgba(245, 177, 36, 0.22), transparent 65%),
+    repeating-linear-gradient(115deg, rgba(30, 122, 61, 0.045) 0 2px, transparent 2px 14px),
+    linear-gradient(135deg, #ffffff 0%, var(--brand-green-50) 100%);
+}
+
+/* Tinted section wash used behind grouped content. */
+.surface-tint {
+  background: linear-gradient(180deg, var(--surface-tint), rgba(234, 242, 232, 0.4));
+}
+
+/* Subtle micro-interactions — fast and non-blocking. */
+@keyframes ak-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ak-slide-in-right {
+  from { opacity: 0.6; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes ak-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-fade-in { animation: ak-fade-in 160ms ease-out both; }
+.animate-slide-in-right { animation: ak-slide-in-right 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.animate-pop-in { animation: ak-pop-in 180ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .animate-fade-in,
+  .animate-slide-in-right,
+  .animate-pop-in { animation: none; }
+  * { transition-duration: 0.01ms !important; }
 }

@@ -11,6 +11,7 @@ import { PendingSignoffs } from "@/components/gate-pass/pending-signoffs";
 import { PriceBenchmarks } from "@/components/seller/price-benchmarks";
 import { VerificationStatusCard } from "@/components/verification/verification-status-card";
 import { commodityQualitySummary } from "@/lib/commodity-labels";
+import { PageHeader, StatCard } from "@/components/ui/stat-card";
 import { formatPeso, ORDER_STATUS_LABELS } from "@/lib/utils";
 import { addMember, createBulkLot, createStagingTicket, issueLoan, saveBankInfo, setMemberDeduction } from "@/app/cooperative/actions";
 
@@ -54,15 +55,12 @@ export default async function CooperativeDashboard() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-      <div>
-        <h1 className="text-2xl font-bold text-neutral-900">{coop.name}</h1>
-        <p className="text-neutral-600">Cooperative dashboard · {coop.municipality}</p>
-      </div>
+      <PageHeader icon="🤝" title={coop.name} subtitle={`Cooperative dashboard · ${coop.municipality}`} />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card><CardContent className="pt-5"><p className="text-sm text-neutral-500">Members</p><p className="mt-1 text-2xl font-bold">{members.length}</p></CardContent></Card>
-        <Card><CardContent className="pt-5"><p className="text-sm text-neutral-500">Member debt outstanding</p><p className="mt-1 text-2xl font-bold text-brand-gold-600">{formatPeso(totalDebt)}</p></CardContent></Card>
-        <Card><CardContent className="pt-5"><p className="text-sm text-neutral-500">Bulk lots</p><p className="mt-1 text-2xl font-bold">{lots.length}</p></CardContent></Card>
+        <StatCard icon="👥" tone="green" label="Members" value={members.length} />
+        <StatCard icon="🧾" tone="gold" label="Member debt outstanding" value={formatPeso(totalDebt)} />
+        <StatCard icon="📦" tone="neutral" label="Bulk lots" value={lots.length} />
       </div>
 
       <VerificationStatusCard idVerificationStatus={me.idVerificationStatus} kycStatus={me.kycStatus} />
